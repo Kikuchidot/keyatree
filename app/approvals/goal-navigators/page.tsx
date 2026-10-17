@@ -1,9 +1,9 @@
 import { canApprove, getServerSession } from "@/lib/goalNavigatorStore";
 import { listStaff } from "@/lib/staffServerStore";
-import { getApprovalAccess, getApprovalNavigatorRecords } from "@/lib/goalNavigatorActions";
-import { getAssignedEmployeeIds } from "@/lib/goalAccess";
+import { getApprovalAccess } from "@/lib/goalNavigatorActions";
+import { getAssignedEmployeeIds, isGoalAdmin } from "@/lib/goalAccess";
 import Link from "next/link";
-import GoalApprovalListPage from "./_components/GoalApprovalListPage";
+import GoalApprovalsPage from "./_components/GoalApprovalsPage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -40,46 +40,24 @@ export default async function GoalNavigatorApprovalPage() {
     );
   }
 
-  const [records, staff] = await Promise.all([
-    getApprovalNavigatorRecords(),
-    listStaff(),
-  ]);
-  const filterEmployeeIds = await getAssignedEmployeeIds(session);
-  const scopedRecords =
-    filterEmployeeIds.size > 0
-      ? records.filter((r) => filterEmployeeIds.has(r.employeeId))
-      : records;
+  const isAdmin = isGoalAdmin(session);
+  const staff = await listStaff();
+  const assignedIds = await getAssignedEmployeeIds(session);
+  const visibleStaff = isAdmin
+    ? staff
+    : staff.filter((s) => assignedIds.has(s.id));
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <main className="mx-auto max-w-5xl space-y-5 px-4 py-6">
-        <div className="rounded-2xl border bg-white p-5 shadow-sm">
-          <h1 className="text-lg font-bold text-gray-800">目標設定・定性目標 承認申請一覧</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            対象期間と提出ファイルを選択し、設定者ごとに申請を確認・承認してください。
-            管理者以外は、自分が担当承認者として割り当てられた設定者のみが表示されます。
-          </p>
-          <div className="mt-4">
-            <Link
-              href="/approvals/goal-navigators/approved"
-              className="inline-flex rounded-xl border border-gray-200 px-4 py-2 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
-            >
-              承認済み一覧を見る
-            </Link>
-          </div>
-        </div>
-
-        <GoalApprovalListPage
-          initialPeriod={currentPeriod()}
-          initialStaff={staff.map((s) => ({
-            id: s.id,
-            name: s.name,
-            photo: s.photo,
-            team: s.team || s.department,
-          }))}
-          records={scopedRecords}
-        />
-      </main>
-    </div>
+    <GoalApprovalsPage
+      initialPeriod={currentPeriod()}
+      initialStaff={visibleStaff.map((s) => ({
+        id: s.id,
+        name: s.name,
+        photo: s.photo,
+        team: s.team || s.department,
+      }))}
+      isAdmin={isAdmin}
+      myEmployeeId={session?.employeeId}
+    />
   );
 }
