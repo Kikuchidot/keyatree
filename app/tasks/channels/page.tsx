@@ -238,6 +238,48 @@ export default function ChannelsWorkspacePage() {
     }
   };
 
+  // ---- 削除 ----
+  const deleteChannelAction = async (c: Channel) => {
+    const talkCount = (talksByChannel[c.id] ?? []).length;
+    const msg = talkCount > 0
+      ? `チャンネル「${c.name}」を削除しますか？\n\nチャンネル内のトークルーム ${talkCount} 件（アーカイブ済み含む全トーク）・メッセージ・依頼（タスク）もすべて削除され、元に戻せません。`
+      : `チャンネル「${c.name}」を削除しますか？\n\n元に戻せません。`;
+    if (!confirm(msg)) return;
+    const res = await fetch(`/api/task-channels/${c.id}`, { method: "DELETE" });
+    if (res.ok) {
+      setChannels((prev) => prev.filter((x) => x.id !== c.id));
+      setTalksByChannel((prev) => {
+        const next = { ...prev };
+        delete next[c.id];
+        return next;
+      });
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        next.delete(c.id);
+        return next;
+      });
+      if (selection?.channelId === c.id) setSelection(null);
+    } else {
+      const d = await res.json().catch(() => null);
+      alert(d?.error ?? "削除に失敗しました");
+    }
+  };
+
+  const deleteTalkAction = async (channelId: string, t: Talk) => {
+    if (!confirm(`トークルーム「${t.name}」を削除しますか？\n\nメッセージ・依頼（タスク）もすべて削除され、元に戻せません。`)) return;
+    const res = await fetch(`/api/task-channels/${channelId}/talks/${t.id}`, { method: "DELETE" });
+    if (res.ok) {
+      setTalksByChannel((prev) => ({
+        ...prev,
+        [channelId]: (prev[channelId] ?? []).filter((x) => x.id !== t.id),
+      }));
+      if (selection?.type === "talk" && selection.talkId === t.id) setSelection(null);
+    } else {
+      const d = await res.json().catch(() => null);
+      alert(d?.error ?? "削除に失敗しました");
+    }
+  };
+
   const load = useCallback(() => {
     setLoading(true);
     fetch("/api/task-channels")
@@ -342,10 +384,7 @@ export default function ChannelsWorkspacePage() {
     <div className="h-screen flex flex-col bg-white text-gray-800">
       {/* 上部バー */}
       <header className="h-12 flex items-center gap-3 px-4 bg-white border-b border-gray-200 flex-shrink-0">
-        <Link href="/tasks" className="text-gray-500 hover:text-gray-800 text-sm flex items-center gap-1.5 transition">
-          <span className="text-base leading-none">‹</span> チームスへ戻る
-        </Link>
-        <div className="w-6 h-6 rounded-md bg-emerald-500 flex items-center justify-center ml-2">
+        <div className="w-6 h-6 rounded-md bg-emerald-500 flex items-center justify-center">
           <span className="text-white text-[11px] font-bold">K</span>
         </div>
         <span className="text-sm font-bold text-gray-800">チャット</span>
@@ -485,6 +524,18 @@ export default function ChannelsWorkspacePage() {
                             ✎
                           </button>
                         )}
+                        {isAdmin && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteChannelAction(c);
+                            }}
+                            title="チャンネルを削除"
+                            className="text-gray-500 hover:text-rose-500 text-xs px-1"
+                          >
+                            ✕
+                          </button>
+                        )}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -571,6 +622,18 @@ export default function ChannelsWorkspacePage() {
                                       className="opacity-0 group-hover/talk:opacity-100 text-gray-500 hover:text-emerald-400 text-[11px] transition px-0.5"
                                     >
                                       ✎
+                                    </button>
+                                  )}
+                                  {canRenameTalk && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteTalkAction(c.id, t);
+                                      }}
+                                      title="トークルームを削除"
+                                      className="opacity-0 group-hover/talk:opacity-100 text-gray-500 hover:text-rose-500 text-[11px] transition px-0.5"
+                                    >
+                                      ✕
                                     </button>
                                   )}
                                   <span className="opacity-0 group-hover/talk:opacity-100 text-gray-400 cursor-grab active:cursor-grabbing text-[11px] transition" title="ドラッグで並べ替え">⠿</span>

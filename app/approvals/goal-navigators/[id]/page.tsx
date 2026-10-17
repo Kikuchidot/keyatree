@@ -4,7 +4,9 @@ import ReviewDecisionPanel from "@/components/goal-navigator/ReviewDecisionPanel
 import ProgressPanel from "@/components/goal-navigator/ProgressPanel";
 import ItemCommentPanel from "@/components/goal-navigator/ItemCommentPanel";
 import ApproverSheetEditor from "@/components/goal-navigator/ApproverSheetEditor";
+import TempEditPanel from "@/components/goal-navigator/TempEditPanel";
 import { getNavigatorRecordDetail } from "@/lib/goalNavigatorActions";
+import { getSheetTemplateAction } from "@/lib/sheetTemplateActions";
 import { getStaff } from "@/lib/staffServerStore";
 
 export const dynamic = "force-dynamic";
@@ -46,7 +48,8 @@ export default async function GoalNavigatorApprovalDetailPage({
     );
   }
 
-  const { record, canApprove, isOwner } = result;
+  const { record, canApprove, isOwner, isAdmin } = result;
+  const template = await getSheetTemplateAction();
 
   // 提出者のステージ・グレードを補完（シートの表示用。answersに保存されていない値を補う）
   // 定量シート：ステージ＝staff.grade、グレード＝staff.position
@@ -141,6 +144,20 @@ export default async function GoalNavigatorApprovalDetailPage({
           </div>
         ) : null}
 
+        {/* 管理者のみ: 承認済みシートへの一時差戻（編集許可）操作 */}
+        {isAdmin && record.status === "approved" ? (
+          <TempEditPanel recordId={record.id} tempEdit={record.tempEdit ?? null} />
+        ) : record.tempEdit ? (
+          <div className="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4">
+            <span className="inline-block rounded-full bg-amber-500 px-3 py-1 text-xs font-black text-white">
+              一時差戻中（編集許可）
+            </span>
+            <p className="mt-2 text-xs text-amber-800">
+              管理者により編集が許可されています。編集した箇所は赤字で記録されます。
+            </p>
+          </div>
+        ) : null}
+
         <ApproverSheetEditor
           recordId={record.id}
           kind={record.kind}
@@ -149,6 +166,9 @@ export default async function GoalNavigatorApprovalDetailPage({
           isOwner={isOwner}
           isApprover={canApprove}
           profile={sheetProfile}
+          tempEditActive={Boolean(record.tempEdit)}
+          fieldEdits={record.fieldEdits}
+          template={template}
         />
 
         {canApprove ? <ReviewDecisionPanel recordId={record.id} status={record.status} /> : null}

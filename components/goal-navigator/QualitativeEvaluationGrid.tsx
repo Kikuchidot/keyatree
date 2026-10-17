@@ -1,5 +1,7 @@
 "use client";
 
+import { RedlineNote, redlineCls, type FieldEdits } from "@/components/goal-navigator/redline";
+
 /**
  * 「会社から求められている能力項目」の評価グリッド。
  * 選択した能力項目①〜⑤について、自己評価／一次評価／二次評価を 0 または 10 のみ選択する。
@@ -20,10 +22,16 @@ export default function QualitativeEvaluationGrid({
   answers,
   onChange,
   disabled = false,
+  fieldEdits,
+  isFieldLocked,
+  fieldNote,
 }: {
   answers: Record<string, string>;
   onChange: (key: string, value: string) => void;
   disabled?: boolean;
+  fieldEdits?: FieldEdits;
+  isFieldLocked?: (key: string) => boolean;
+  fieldNote?: (key: string) => string | undefined;
 }) {
   return (
     <section className="rounded-2xl border border-gray-200 bg-white shadow-sm">
@@ -41,6 +49,7 @@ export default function QualitativeEvaluationGrid({
             <div className="space-y-3">
               {COLUMNS.map((col) => {
                 const key = `${col.prefix}_${n}`;
+                const isLocked = Boolean(isFieldLocked?.(key));
                 return (
                   <label key={key} className="block">
                     <span className="mb-1 block text-xs font-bold text-gray-600">
@@ -50,8 +59,12 @@ export default function QualitativeEvaluationGrid({
                     <select
                       value={answers[key] ?? "0"}
                       onChange={(e) => onChange(key, e.target.value)}
-                      disabled={disabled}
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-bold text-gray-900 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:bg-gray-50 disabled:text-gray-400"
+                      disabled={disabled || isLocked}
+                      className={redlineCls(
+                        "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-bold text-gray-900 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:bg-gray-50 disabled:text-gray-400",
+                        fieldEdits,
+                        key
+                      )}
                     >
                       {SCORES.map((s) => (
                         <option key={s} value={s}>
@@ -59,6 +72,12 @@ export default function QualitativeEvaluationGrid({
                         </option>
                       ))}
                     </select>
+                    <RedlineNote edits={fieldEdits} fieldKey={key} />
+                    {isLocked && fieldNote?.(key) ? (
+                      <span className="mt-1 inline-block rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-bold text-gray-500">
+                        {fieldNote?.(key)}
+                      </span>
+                    ) : null}
                   </label>
                 );
               })}

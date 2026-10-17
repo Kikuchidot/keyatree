@@ -1,72 +1,63 @@
 import ClientApprovedList from "@/components/goal-navigator/ClientApprovedList";
-import RecordActions from "@/components/goal-navigator/RecordActions";
-import RecordStatusBadge from "@/components/goal-navigator/RecordStatusBadge";
-import { getApprovedNavigatorRecords } from "@/lib/goalNavigatorActions";
+import { getServerSession } from "@/lib/goalNavigatorStore";
+import { getAssignedEmployeeIds } from "@/lib/goalAccess";
+import { getApprovedNavigatorRecords, getApprovalAccess } from "@/lib/goalNavigatorActions";
+import { isSupabaseEnabled } from "@/lib/supabaseServer";
+import Link from "next/link";
+import GroupedApprovedRecords from "../_components/GroupedApprovedRecords";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function formatDate(iso?: string) {
-  if (!iso) return "-";
-  const date = new Date(iso);
-  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-}
-
 export default async function ApprovedGoalNavigatorPage() {
+  const session = await getServerSession();
+  const isApprover = await getApprovalAccess();
+
+  if (!isApprover) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <main className="mx-auto max-w-3xl px-4 py-10">
+          <div className="rounded-2xl border bg-white p-10 text-center shadow-sm">
+            <p className="text-base font-bold text-gray-700">アクセス権限がありません</p>
+            <p className="mt-2 text-sm text-gray-500">
+              承認済み一覧は、管理者および担当承認者に割り当てられたアカウントのみ閲覧できます。
+            </p>
+            <Link
+              href="/employees"
+              className="mt-4 inline-flex rounded-xl border border-gray-200 px-4 py-2 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
+            >
+              ホームへ戻る
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   const records = await getApprovedNavigatorRecords();
+  const filterEmployeeIds = await getAssignedEmployeeIds(session);
 
   return (
     <div className="min-h-screen bg-gray-50">
       <main className="mx-auto max-w-6xl space-y-5 px-4 py-6">
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <h1 className="text-lg font-bold text-gray-800">目標設定・定性目標 承認済み一覧</h1>
-          <p className="mt-1 text-sm text-gray-500">承認済みの目標設定と定性目標を確認できます。</p>
+          <p className="mt-1 text-sm text-gray-500">
+            提出者ごとにタブでまとめています。「進行中」と「終了済み」を切り替えられます。
+            管理者以外は、自分が担当承認者として割り当てられた設定者のみが表示されます。
+          </p>
+          <div className="mt-4">
+            <Link
+              href="/approvals/goal-navigators"
+              className="inline-flex rounded-xl border border-gray-200 px-4 py-2 text-sm font-bold text-gray-700 transition hover:bg-gray-50"
+            >
+              承認申請一覧を見る
+            </Link>
+          </div>
         </div>
 
-        <div className="space-y-4">
-          <ClientApprovedList />
-          {records.length === 0 ? (
-            <div className="rounded-2xl border bg-white p-10 text-center text-sm text-gray-400 shadow-sm">
-              承認済みのレコードはまだありません
-            </div>
-          ) : (
-            records.map((record) => (
-              <div key={record.id} className="rounded-2xl border bg-white p-5 shadow-sm">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-base font-bold text-gray-800">{record.title}</p>
-                      <RecordStatusBadge status={record.status} />
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${
-                          record.kind === "quantitative"
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-indigo-50 text-indigo-700"
-                        }`}
-                      >
-                        {record.kind === "quantitative" ? "目標設定" : "定性目標"}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-600">
-                      {record.employeeName} / {record.department}
-                    </p>
-                    <p className="text-xs text-gray-400">承認日 {formatDate(record.approvedAt || record.updatedAt)}</p>
-                  </div>
-                  <div className="flex flex-col items-end gap-2 lg:text-right">
-                    <div className="text-xs text-gray-400">
-                      <p>承認者</p>
-                      <p className="mt-1 text-sm font-medium text-gray-600">{record.approvedBy || "-"}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <RecordActions record={record} />
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+        {!isSupabaseEnabled() ? <ClientApprovedList /> : null}
+        <GroupedApprovedRecords records={records} filterEmployeeIds={filterEmployeeIds} />
       </main>
     </div>
   );

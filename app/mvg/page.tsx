@@ -1,12 +1,12 @@
 import MvgVotePage from "@/components/mvg/MvgVotePage";
-import { getMvgStaffWithRankingAction } from "@/lib/mvgActions";
+import { getMvgStaffForVotingAction } from "@/lib/mvgActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function MvgPage() {
   const currentYear = new Date().getFullYear().toString();
-  const res = await getMvgStaffWithRankingAction(currentYear);
+  const res = await getMvgStaffForVotingAction(currentYear);
 
   if (!res.ok) {
     return (
@@ -22,8 +22,6 @@ export default async function MvgPage() {
     <MvgVotePage
       initialPeriod={currentYear}
       initialStaff={res.staff}
-      initialRanking={res.ranking}
-      initialTotalVotes={res.totalVotes}
       initialPeriods={res.periods}
     />
   );

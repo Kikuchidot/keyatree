@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { competencyItemsForGrade, competencyLabel, bandForGrade } from "@/lib/qualitativeCompetencies";
+import ViewableBox from "@/components/goal-navigator/ViewableBox";
+import { RedlineNote, redlineCls, type FieldEdits } from "@/components/goal-navigator/redline";
 
 /**
  * 会社から求められている能力項目①〜⑤（ログイン中スタッフのグレードで選択肢を絞り込み）と、
@@ -13,27 +15,32 @@ import { competencyItemsForGrade, competencyLabel, bandForGrade } from "@/lib/qu
 const ITEMS = [1, 2, 3, 4, 5];
 const CIRCLED: Record<number, string> = { 1: "①", 2: "②", 3: "③", 4: "④", 5: "⑤" };
 
-function ExpandIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M9 3H3v6M15 21h6v-6M3 3l7 7M21 21l-7-7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 export default function QualitativeCompetencySection({
   answers,
   onChange,
   disabled = false,
   grade = "",
+  fieldEdits,
+  isFieldLocked,
+  fieldNote,
 }: {
   answers: Record<string, string>;
   onChange: (key: string, value: string) => void;
   disabled?: boolean;
   grade?: string;
+  fieldEdits?: FieldEdits;
+  isFieldLocked?: (key: string) => boolean;
+  fieldNote?: (key: string) => string | undefined;
 }) {
   const options = competencyItemsForGrade(grade);
   const band = bandForGrade(grade);
+  const locked = (k: string) => Boolean(isFieldLocked?.(k));
+  const lockNote = (k: string) =>
+    locked(k) && fieldNote?.(k) ? (
+      <span className="mt-1 inline-block rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-bold text-gray-500">
+        {fieldNote?.(k)}
+      </span>
+    ) : null;
 
   const [editing, setEditing] = useState<{ key: string; label: string; numeric: boolean } | null>(null);
   const [draft, setDraft] = useState("");
@@ -98,8 +105,12 @@ export default function QualitativeCompetencySection({
                 <select
                   value={answers[compKey] ?? ""}
                   onChange={(e) => onChange(compKey, e.target.value)}
-                  disabled={disabled}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-900 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:bg-gray-50 disabled:text-gray-400"
+                  disabled={disabled || locked(compKey)}
+                  className={redlineCls(
+                    "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-900 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:bg-gray-50 disabled:text-gray-400",
+                    fieldEdits,
+                    compKey
+                  )}
                 >
                   <option value="">(指定なし)</option>
                   {options.map((item) => {
@@ -111,6 +122,8 @@ export default function QualitativeCompetencySection({
                     );
                   })}
                 </select>
+                <RedlineNote edits={fieldEdits} fieldKey={compKey} />
+                {lockNote(compKey)}
               </label>
 
               <div className="my-2 text-center text-sm font-bold text-gray-400">↓↓</div>
@@ -122,35 +135,33 @@ export default function QualitativeCompetencySection({
               <div className="space-y-3">
                 <div>
                   <span className="mb-1 block text-xs font-bold text-gray-600">項目 {n}</span>
-                  <button
-                    type="button"
+                  <ViewableBox
+                    value={answers[itemKey] ?? ""}
+                    placeholder="クリックして入力"
                     onClick={() => open(itemKey, `項目 ${n}`, false)}
                     disabled={disabled}
-                    className="relative flex h-20 w-full items-start rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-left text-xs leading-5 text-gray-800 transition hover:border-indigo-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <span className="line-clamp-2 whitespace-pre-wrap pr-6">
-                      {answers[itemKey] || <span className="text-gray-400">クリックして入力</span>}
-                    </span>
-                    <span className="absolute bottom-2 right-2 text-gray-400">
-                      <ExpandIcon />
-                    </span>
-                  </button>
+                    locked={locked(itemKey)}
+                    note={fieldNote?.(itemKey)}
+                    height="h-20"
+                    clamp="line-clamp-2"
+                    fieldEdits={fieldEdits}
+                    fieldKey={itemKey}
+                  />
                 </div>
                 <div>
                   <span className="mb-1 block text-xs font-bold text-gray-600">数字 {n}</span>
-                  <button
-                    type="button"
+                  <ViewableBox
+                    value={answers[numKey] ?? ""}
+                    placeholder="数字のみ入力・クリック"
                     onClick={() => open(numKey, `数字 ${n}`, true)}
                     disabled={disabled}
-                    className="relative flex h-20 w-full items-start rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-left text-xs leading-5 text-gray-800 transition hover:border-indigo-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <span className="line-clamp-2 whitespace-pre-wrap pr-6">
-                      {answers[numKey] || <span className="text-gray-400">数字のみ入力・クリック</span>}
-                    </span>
-                    <span className="absolute bottom-2 right-2 text-gray-400">
-                      <ExpandIcon />
-                    </span>
-                  </button>
+                    locked={locked(numKey)}
+                    note={fieldNote?.(numKey)}
+                    height="h-20"
+                    clamp="line-clamp-2"
+                    fieldEdits={fieldEdits}
+                    fieldKey={numKey}
+                  />
                 </div>
               </div>
 
@@ -161,19 +172,18 @@ export default function QualitativeCompetencySection({
               </div>
               <div>
                 <span className="mb-1 block text-xs font-bold text-gray-600">行動 {n}</span>
-                <button
-                  type="button"
+                <ViewableBox
+                  value={answers[actionKey] ?? ""}
+                  placeholder="クリックして入力"
                   onClick={() => open(actionKey, `行動 ${n}`, false)}
                   disabled={disabled}
-                  className="relative flex h-24 w-full items-start rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-left text-xs leading-5 text-gray-800 transition hover:border-indigo-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span className="line-clamp-3 whitespace-pre-wrap pr-6">
-                    {answers[actionKey] || <span className="text-gray-400">クリックして入力</span>}
-                  </span>
-                  <span className="absolute bottom-2 right-2 text-gray-400">
-                    <ExpandIcon />
-                  </span>
-                </button>
+                  locked={locked(actionKey)}
+                  note={fieldNote?.(actionKey)}
+                  height="h-24"
+                  clamp="line-clamp-3"
+                  fieldEdits={fieldEdits}
+                  fieldKey={actionKey}
+                />
               </div>
 
               <div className="my-2 text-center text-sm font-bold text-gray-400">↓↓</div>
@@ -191,19 +201,18 @@ export default function QualitativeCompetencySection({
                       <span className="mb-1 block text-xs font-bold text-gray-600">
                         依頼者{CIRCLED[n]} {idx}
                       </span>
-                      <button
-                        type="button"
+                      <ViewableBox
+                        value={answers[sKey] ?? ""}
+                        placeholder="クリックして入力"
                         onClick={() => open(sKey, `依頼者${CIRCLED[n]} ${idx}`, false)}
                         disabled={disabled}
-                        className="relative flex h-12 w-full items-start rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-left text-xs leading-5 text-gray-800 transition hover:border-indigo-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <span className="line-clamp-1 whitespace-pre-wrap pr-6">
-                          {answers[sKey] || <span className="text-gray-400">クリックして入力</span>}
-                        </span>
-                        <span className="absolute bottom-2 right-2 text-gray-400">
-                          <ExpandIcon />
-                        </span>
-                      </button>
+                        locked={locked(sKey)}
+                        note={fieldNote?.(sKey)}
+                        height="h-12"
+                        clamp="line-clamp-1"
+                        fieldEdits={fieldEdits}
+                        fieldKey={sKey}
+                      />
                     </div>
                     <div>
                       <span className="mb-1 block text-xs font-bold text-gray-600">
@@ -213,9 +222,15 @@ export default function QualitativeCompetencySection({
                         type="date"
                         value={answers[dKey] ?? ""}
                         onChange={(e) => onChange(dKey, e.target.value)}
-                        disabled={disabled}
-                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-900 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:bg-gray-50"
+                        disabled={disabled || locked(dKey)}
+                        className={redlineCls(
+                          "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-bold text-gray-900 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:bg-gray-50",
+                          fieldEdits,
+                          dKey
+                        )}
                       />
+                      <RedlineNote edits={fieldEdits} fieldKey={dKey} />
+                      {lockNote(dKey)}
                     </div>
                   </div>
                 ))}
@@ -228,19 +243,18 @@ export default function QualitativeCompetencySection({
               </div>
               <div>
                 <span className="mb-1 block text-xs font-bold text-gray-600">支援内容 {n}</span>
-                <button
-                  type="button"
+                <ViewableBox
+                  value={answers[supportContentKey] ?? ""}
+                  placeholder="クリックして入力"
                   onClick={() => open(supportContentKey, `支援内容 ${n}`, false)}
                   disabled={disabled}
-                  className="relative flex h-24 w-full items-start rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-left text-xs leading-5 text-gray-800 transition hover:border-indigo-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span className="line-clamp-3 whitespace-pre-wrap pr-6">
-                    {answers[supportContentKey] || <span className="text-gray-400">クリックして入力</span>}
-                  </span>
-                  <span className="absolute bottom-2 right-2 text-gray-400">
-                    <ExpandIcon />
-                  </span>
-                </button>
+                  locked={locked(supportContentKey)}
+                  note={fieldNote?.(supportContentKey)}
+                  height="h-24"
+                  clamp="line-clamp-3"
+                  fieldEdits={fieldEdits}
+                  fieldKey={supportContentKey}
+                />
               </div>
 
               <div className="mt-2 text-center text-sm font-bold text-gray-400">↓↓</div>
@@ -250,19 +264,18 @@ export default function QualitativeCompetencySection({
               </div>
               <div>
                 <span className="mb-1 block text-xs font-bold text-gray-600">中間実績({n})</span>
-                <button
-                  type="button"
+                <ViewableBox
+                  value={answers[midResultKey] ?? ""}
+                  placeholder="数字のみ入力・単位入力不要"
                   onClick={() => open(midResultKey, `中間実績(${n})`, true)}
                   disabled={disabled}
-                  className="relative flex h-20 w-full items-start rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-left text-xs leading-5 text-gray-800 transition hover:border-indigo-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span className="line-clamp-2 whitespace-pre-wrap pr-6">
-                    {answers[midResultKey] || <span className="text-gray-400">数字のみ入力・単位入力不要</span>}
-                  </span>
-                  <span className="absolute bottom-2 right-2 text-gray-400">
-                    <ExpandIcon />
-                  </span>
-                </button>
+                  locked={locked(midResultKey)}
+                  note={fieldNote?.(midResultKey)}
+                  height="h-20"
+                  clamp="line-clamp-2"
+                  fieldEdits={fieldEdits}
+                  fieldKey={midResultKey}
+                />
               </div>
 
               <div className="my-3 border-t-2 border-dashed border-gray-400" />
@@ -272,19 +285,18 @@ export default function QualitativeCompetencySection({
               </div>
               <div>
                 <span className="mb-1 block text-xs font-bold text-gray-600">月間実績({n})</span>
-                <button
-                  type="button"
+                <ViewableBox
+                  value={answers[monthResultKey] ?? ""}
+                  placeholder="数字のみ入力・単位入力不要"
                   onClick={() => open(monthResultKey, `月間実績(${n})`, true)}
                   disabled={disabled}
-                  className="relative flex h-20 w-full items-start rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-left text-xs leading-5 text-gray-800 transition hover:border-indigo-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span className="line-clamp-2 whitespace-pre-wrap pr-6">
-                    {answers[monthResultKey] || <span className="text-gray-400">数字のみ入力・単位入力不要</span>}
-                  </span>
-                  <span className="absolute bottom-2 right-2 text-gray-400">
-                    <ExpandIcon />
-                  </span>
-                </button>
+                  locked={locked(monthResultKey)}
+                  note={fieldNote?.(monthResultKey)}
+                  height="h-20"
+                  clamp="line-clamp-2"
+                  fieldEdits={fieldEdits}
+                  fieldKey={monthResultKey}
+                />
               </div>
 
               <div className="mt-3 mb-3 border-y border-dashed border-gray-300 py-1 text-center text-xs font-black text-gray-700">
@@ -299,19 +311,18 @@ export default function QualitativeCompetencySection({
                   return (
                     <div key={c}>
                       <span className="mb-1 block text-xs font-bold text-gray-600">月間原因({n})-{c}</span>
-                      <button
-                        type="button"
+                      <ViewableBox
+                        value={answers[causeKey] ?? ""}
+                        placeholder="なぜ→"
                         onClick={() => open(causeKey, `月間原因(${n})-${c}`, false)}
                         disabled={disabled}
-                        className="relative flex h-12 w-full items-start rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-left text-xs leading-5 text-gray-800 transition hover:border-indigo-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <span className="line-clamp-1 whitespace-pre-wrap pr-6">
-                          {answers[causeKey] || <span className="text-gray-400">なぜ→</span>}
-                        </span>
-                        <span className="absolute bottom-2 right-2 text-gray-400">
-                          <ExpandIcon />
-                        </span>
-                      </button>
+                        locked={locked(causeKey)}
+                        note={fieldNote?.(causeKey)}
+                        height="h-12"
+                        clamp="line-clamp-1"
+                        fieldEdits={fieldEdits}
+                        fieldKey={causeKey}
+                      />
                     </div>
                   );
                 })}
@@ -329,19 +340,18 @@ export default function QualitativeCompetencySection({
                   return (
                     <div key={c}>
                       <span className="mb-1 block text-xs font-bold text-gray-600">月間改善策({n})-{c}</span>
-                      <button
-                        type="button"
+                      <ViewableBox
+                        value={answers[actKey] ?? ""}
+                        placeholder={`${c})`}
                         onClick={() => open(actKey, `月間改善策(${n})-${c}`, false)}
                         disabled={disabled}
-                        className="relative flex h-12 w-full items-start rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-left text-xs leading-5 text-gray-800 transition hover:border-indigo-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <span className="line-clamp-1 whitespace-pre-wrap pr-6">
-                          {answers[actKey] || <span className="text-gray-400">{c})</span>}
-                        </span>
-                        <span className="absolute bottom-2 right-2 text-gray-400">
-                          <ExpandIcon />
-                        </span>
-                      </button>
+                        locked={locked(actKey)}
+                        note={fieldNote?.(actKey)}
+                        height="h-12"
+                        clamp="line-clamp-1"
+                        fieldEdits={fieldEdits}
+                        fieldKey={actKey}
+                      />
                     </div>
                   );
                 })}

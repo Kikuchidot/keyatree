@@ -36,10 +36,33 @@ async function putJson(supabase: ReturnType<typeof getSupabaseAdmin>, path: stri
   const { error } = await supabase.storage.from(BUCKET).upload(path, JSON.stringify(value), {
     contentType: "application/json",
     upsert: true,
+    cacheControl: "0",
   });
   if (error) throw new Error(error.message);
 }
 async function getJson<T>(supabase: ReturnType<typeof getSupabaseAdmin>, path: string): Promise<T | null> {
+  // Bypass Supabase Storage CDN cache (lags ~5-10s even with cacheControl:"0")
+  // by fetching the authenticated object endpoint directly with a cache-buster.
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (url && serviceRoleKey) {
+    try {
+      const endpoint = `${url}/storage/v1/object/${BUCKET}/${path}?_cb=${Date.now()}`;
+      const res = await fetch(endpoint, {
+        headers: {
+          Authorization: `Bearer ${serviceRoleKey}`,
+          apikey: serviceRoleKey,
+        },
+        cache: "no-store",
+      });
+      if (res.ok) {
+        return (await res.json()) as T;
+      }
+      if (res.status === 404) return null;
+    } catch {
+      // fall through to SDK download below
+    }
+  }
   const { data, error } = await supabase.storage.from(BUCKET).download(path);
   if (error || !data) return null;
   try {

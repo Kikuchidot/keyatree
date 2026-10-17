@@ -1,4 +1,5 @@
 import { getSupabaseAdmin, isSupabaseEnabled } from "@/lib/supabaseServer";
+import { deleteTask, listTasks } from "@/lib/taskServerStore";
 
 /**
  * タスク管理のチャンネル / トークを Supabase Storage に JSON として永続化する。
@@ -138,11 +139,36 @@ async function putJson(supabase: ReturnType<typeof getSupabaseAdmin>, path: stri
   const { error } = await supabase.storage.from(BUCKET).upload(path, JSON.stringify(value), {
     contentType: "application/json",
     upsert: true,
+    cacheControl: "0",
   });
   if (error) throw new Error(error.message);
 }
 
 async function getJson<T>(supabase: ReturnType<typeof getSupabaseAdmin>, path: string): Promise<T | null> {
+  // Bypass Supabase Storage CDN cache (which lags ~5-10s even with cacheControl:"0")
+  // by fetching the authenticated object endpoint directly with a cache-buster.
+  // これがないと read-modify-write（メンバー追加/削除）が古いキャッシュを読み、
+  // 「1人削除すると全員消える」「削除したメンバーが復活する」などの矛盾が起きる。
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (url && serviceRoleKey) {
+    try {
+      const endpoint = `${url}/storage/v1/object/${BUCKET}/${path}?_cb=${Date.now()}`;
+      const res = await fetch(endpoint, {
+        headers: {
+          Authorization: `Bearer ${serviceRoleKey}`,
+          apikey: serviceRoleKey,
+        },
+        cache: "no-store",
+      });
+      if (res.ok) {
+        return (await res.json()) as T;
+      }
+      if (res.status === 404) return null;
+    } catch {
+      // fall through to SDK download below
+    }
+  }
   const { data, error } = await supabase.storage.from(BUCKET).download(path);
   if (error || !data) return null;
   try {
@@ -251,19 +277,40 @@ export async function createChannel(input: {
 }
 
 export async function deleteChannel(id: string): Promise<void> {
+  // 紐づくトーク（アーカイブ済み含む）・メッセージ・依頼（タスク）も一緒に削除する
+  const talksForChannel = async (supabase: ReturnType<typeof getSupabaseAdmin> | null) => {
+    if (!supabase) return [];
+    const all = await listJson<Talk>(supabase, TALK_PREFIX);
+    return all.filter((t) => t.channelId === id);
+  };
+
   if (!isSupabaseEnabled()) {
     const m = memory();
     m.channels.delete(id);
+    const talkIds: string[] = [];
     for (const [tid, t] of m.talks) {
-      if (t.channelId === id) m.talks.delete(tid);
+      if (t.channelId === id) {
+        talkIds.push(tid);
+        m.talks.delete(tid);
+      }
+    }
+    for (const tid of talkIds) m.messages.delete(tid);
+    for (const task of await listTasks({ channelId: id })) {
+      await deleteTask(task.id);
     }
     return;
   }
   const supabase = getSupabaseAdmin();
   await ensureBucket(supabase);
-  const talks = await listTalks(id);
-  const paths = [channelPath(id), ...talks.map((t) => talkPath(t.id))];
-  await supabase.storage.from(BUCKET).remove(paths);
+  const talks = await talksForChannel(supabase);
+  const paths = [
+    channelPath(id),
+    ...talks.flatMap((t) => [talkPath(t.id), messagePath(t.id)]),
+  ];
+  if (paths.length > 0) await supabase.storage.from(BUCKET).remove(paths);
+  for (const task of await listTasks({ channelId: id })) {
+    await deleteTask(task.id);
+  }
 }
 
 // ---- Talks ----
@@ -329,14 +376,22 @@ export async function createTalk(input: {
 }
 
 export async function deleteTalk(id: string): Promise<void> {
+  // 紐づくメッセージ・依頼（タスク）も一緒に削除する
   if (!isSupabaseEnabled()) {
-    memory().talks.delete(id);
-    memory().messages.delete(id);
+    const m = memory();
+    m.talks.delete(id);
+    m.messages.delete(id);
+    for (const task of await listTasks({ talkId: id })) {
+      await deleteTask(task.id);
+    }
     return;
   }
   const supabase = getSupabaseAdmin();
   await ensureBucket(supabase);
   await supabase.storage.from(BUCKET).remove([talkPath(id), messagePath(id)]);
+  for (const task of await listTasks({ talkId: id })) {
+    await deleteTask(task.id);
+  }
 }
 
 // ---- Talk messages (chat) ----

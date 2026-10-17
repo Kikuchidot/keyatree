@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { getMvgStaffWithRankingAction } from "@/lib/mvgActions";
-import type { MvgRankingEntry } from "@/lib/mvgStore";
-import MvgRanking from "@/components/mvg/MvgRanking";
+import { getMvgStaffForVotingAction } from "@/lib/mvgActions";
 import VoteModal from "@/components/mvg/VoteModal";
 
 type SessionInfo = {
@@ -25,20 +23,14 @@ function parseCookieSession(): SessionInfo | null {
 export default function MvgVotePage({
   initialPeriod,
   initialStaff,
-  initialRanking,
-  initialTotalVotes,
   initialPeriods,
 }: {
   initialPeriod: string;
   initialStaff: { id: string; name: string; photo?: string; team?: string }[];
-  initialRanking: MvgRankingEntry[];
-  initialTotalVotes: number;
   initialPeriods: string[];
 }) {
   const [period, setPeriod] = useState(initialPeriod);
   const [staff, setStaff] = useState(initialStaff);
-  const [ranking, setRanking] = useState(initialRanking);
-  const [totalVotes, setTotalVotes] = useState(initialTotalVotes);
   const [periods, setPeriods] = useState(initialPeriods);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<{ id: string; name: string; photo?: string } | null>(null);
@@ -49,8 +41,6 @@ export default function MvgVotePage({
     setSession(parseCookieSession());
   }, []);
 
-  const staffMap = useMemo(() => new Map(staff.map((s) => [s.id, s])), [staff]);
-
   const filteredStaff = useMemo(() => {
     const q = search.trim();
     return staff.filter((s) =>
@@ -60,11 +50,9 @@ export default function MvgVotePage({
 
   function refresh() {
     startTransition(async () => {
-      const res = await getMvgStaffWithRankingAction(period);
+      const res = await getMvgStaffForVotingAction(period);
       if (!res.ok) return;
       setStaff(res.staff);
-      setRanking(res.ranking);
-      setTotalVotes(res.totalVotes);
       setPeriods(res.periods);
     });
   }
@@ -72,11 +60,9 @@ export default function MvgVotePage({
   function handlePeriodChange(next: string) {
     setPeriod(next);
     startTransition(async () => {
-      const res = await getMvgStaffWithRankingAction(next);
+      const res = await getMvgStaffForVotingAction(next);
       if (!res.ok) return;
       setStaff(res.staff);
-      setRanking(res.ranking);
-      setTotalVotes(res.totalVotes);
     });
   }
 
@@ -101,14 +87,6 @@ export default function MvgVotePage({
           </select>
         </div>
 
-        {isPending ? (
-          <div className="flex items-center justify-center py-10">
-            <span className="w-8 h-8 border-2 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
-          </div>
-        ) : (
-          <MvgRanking ranking={ranking} totalVotes={totalVotes} staffMap={staffMap} />
-        )}
-
         <div className="bg-white rounded-2xl border shadow-sm p-5 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <h2 className="text-base font-bold text-gray-800">投票するスタッフを選択</h2>
@@ -121,28 +99,34 @@ export default function MvgVotePage({
             />
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            {filteredStaff.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => setSelected({ id: s.id, name: s.name, photo: s.photo })}
-                className="flex flex-col items-center gap-2 rounded-xl border p-3 transition hover:border-emerald-400 hover:bg-emerald-50 text-left"
-              >
-                {s.photo ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={s.photo} alt={s.name} className="w-16 h-16 rounded-full object-cover" />
-                ) : (
-                  <div className="w-16 h-16 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xl font-bold">
-                    {s.name.slice(0, 1)}
+          {isPending ? (
+            <div className="flex items-center justify-center py-10">
+              <span className="w-8 h-8 border-2 border-emerald-200 border-t-emerald-500 rounded-full animate-spin" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+              {filteredStaff.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setSelected({ id: s.id, name: s.name, photo: s.photo })}
+                  className="flex flex-col items-center gap-2 rounded-xl border p-3 transition hover:border-emerald-400 hover:bg-emerald-50 text-left"
+                >
+                  {s.photo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={s.photo} alt={s.name} className="w-16 h-16 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xl font-bold">
+                      {s.name.slice(0, 1)}
+                    </div>
+                  )}
+                  <div className="text-center">
+                    <p className="text-xs font-bold text-gray-800 line-clamp-1">{s.name}</p>
+                    <p className="text-[10px] text-gray-500 line-clamp-1">{s.team}</p>
                   </div>
-                )}
-                <div className="text-center">
-                  <p className="text-xs font-bold text-gray-800 line-clamp-1">{s.name}</p>
-                  <p className="text-[10px] text-gray-500 line-clamp-1">{s.team}</p>
-                </div>
-              </button>
-            ))}
-          </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </main>
 

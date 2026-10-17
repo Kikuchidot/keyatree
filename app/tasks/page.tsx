@@ -132,13 +132,6 @@ export default function TasksPage() {
         <aside className="w-72 flex-shrink-0 bg-gray-50 border-r border-gray-200 flex flex-col min-h-0">
           <div className="px-3 pt-3 pb-2 flex items-center justify-between">
             <h2 className="text-lg font-bold text-gray-800">タスク</h2>
-            <Link
-              href="/tasks/channels"
-              title="トークルームからタスクを作成"
-              className="w-7 h-7 rounded-md bg-emerald-500 hover:bg-emerald-600 text-white text-lg leading-none flex items-center justify-center transition"
-            >
-              +
-            </Link>
           </div>
 
           <div className="flex-1 overflow-y-auto px-3 pb-4 space-y-4">
@@ -193,7 +186,6 @@ export default function TasksPage() {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">チャンネル</p>
-                <Link href="/tasks/channels" className="text-[11px] text-emerald-600 hover:text-emerald-700 transition">管理</Link>
               </div>
               <div className="space-y-0.5">
                 <button
@@ -281,9 +273,6 @@ export default function TasksPage() {
                   フィルター解除
                 </button>
               )}
-              <Link href="/tasks/channels" className="bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold px-4 py-1.5 rounded-lg transition">
-                + トークルームから作成
-              </Link>
             </div>
           </div>
 
@@ -292,7 +281,7 @@ export default function TasksPage() {
               {filtered.length === 0 ? (
                 <div className="text-center py-16 text-gray-500">
                   <p className="text-base font-bold">タスクがありません</p>
-                  <p className="text-sm mt-1">タスクはトークルーム内から作成します（「+ トークルームから作成」）</p>
+                  <p className="text-sm mt-1">タスクはチームス（機能一覧 → チームス）のトークルーム内から作成します</p>
                 </div>
               ) : (
                 <div className="space-y-2">

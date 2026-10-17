@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>K.AI 目標設定 権限・承認・一時差戻 運用手順書</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700;900&family=Inter:wght@400;600;700;800&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --emerald:#10b981; --teal:#0d9488; --gray-900:#111827; --gray-700:#374151;
+    --gray-500:#6b7280; --gray-200:#e5e7eb; --gray-100:#f3f4f6; --gray-50:#f9fafb;
+    --blue:#3b82f6; --amber:#f59e0b; --rose:#e11d48;
+  }
+  body { font-family:'Noto Sans JP','Inter',sans-serif; color:var(--gray-900); background:#fff; line-height:1.8; font-size:14px; }
+  .cover {
+    min-height:56vh; padding:72px 64px; color:#fff;
+    background:linear-gradient(135deg,#0f172a 0%,#1e293b 45%,#0f766e 100%);
+    position:relative; overflow:hidden;
+  }
+  .cover::before { content:""; position:absolute; inset:0; background:radial-gradient(circle at 80% 20%,rgba(255,255,255,.12),transparent 28%); }
+  .cover-inner { position:relative; z-index:1; max-width:920px; }
+  .eyebrow { display:inline-block; padding:6px 14px; border:1px solid rgba(255,255,255,.25); border-radius:999px; font-size:11px; font-weight:800; letter-spacing:.08em; color:#ccfbf1; margin-bottom:28px; }
+  .brand { font-family:'Inter',sans-serif; font-size:34px; font-weight:800; letter-spacing:-.04em; }
+  .brand span { color:#5eead4; }
+  h1 { margin-top:42px; font-size:36px; line-height:1.4; font-weight:800; letter-spacing:-.02em; }
+  .cover p { margin-top:16px; max-width:720px; color:rgba(255,255,255,.9); }
+  .meta { margin-top:38px; display:flex; gap:32px; flex-wrap:wrap; font-size:12px; color:rgba(255,255,255,.78); }
+  .meta strong { display:block; color:#fff; margin-bottom:4px; }
+  .page { max-width:980px; margin:0 auto; padding:56px 40px 80px; }
+  .intro { background:linear-gradient(180deg,#f0fdfa 0%,#fff 100%); border:1px solid #99f6e4; border-radius:18px; padding:24px 26px; }
+  .intro h2 { font-size:18px; color:#115e59; margin-bottom:10px; }
+  .section { margin-top:42px; }
+  .section-head { display:flex; gap:14px; align-items:center; padding-bottom:14px; border-bottom:2px solid var(--gray-200); margin-bottom:22px; }
+  .no { width:34px; height:34px; border-radius:10px; background:linear-gradient(135deg,var(--teal),var(--emerald)); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-family:'Inter',sans-serif; flex-shrink:0; }
+  .section-head h3 { font-size:22px; letter-spacing:-.02em; }
+  .card { border:1.5px solid var(--gray-200); border-radius:18px; background:#fff; overflow:hidden; }
+  .card-head { background:var(--gray-50); border-bottom:1px solid var(--gray-200); padding:14px 18px; }
+  .card-head h4 { font-size:16px; }
+  .card-body { padding:16px 18px; }
+  .grid-2 { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+  .grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { background:var(--gray-50); text-align:left; padding:10px 12px; border:1px solid var(--gray-200); font-weight:700; white-space:nowrap; }
+  td { padding:10px 12px; border:1px solid var(--gray-200); vertical-align:top; }
+  .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:11px; font-weight:700; white-space:nowrap; }
+  .badge-admin { background:#dbeafe; color:#1d4ed8; }
+  .badge-hr { background:#ede9fe; color:#6d28d9; }
+  .badge-approver { background:#d1fae5; color:#047857; }
+  .badge-owner { background:#fef3c7; color:#b45309; }
+  .badge-none { background:var(--gray-100); color:var(--gray-500); }
+  .steps { counter-reset:step; list-style:none; }
+  .steps li { position:relative; padding:0 0 18px 44px; }
+  .steps li::before { counter-increment:step; content:counter(step); position:absolute; left:0; top:2px; width:28px; height:28px; border-radius:999px; background:linear-gradient(135deg,var(--teal),var(--emerald)); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; font-family:'Inter',sans-serif; }
+  .steps li:not(:last-child)::after { content:""; position:absolute; left:13.5px; top:34px; bottom:0; width:1.5px; background:var(--gray-200); }
+  .steps b { display:block; font-size:14px; }
+  .url { font-family:'Inter',sans-serif; font-size:12.5px; background:var(--gray-100); border:1px solid var(--gray-200); border-radius:8px; padding:2px 10px; display:inline-block; margin:2px 0; }
+  .note { background:#fffbeb; border:1px solid #fde68a; border-radius:14px; padding:14px 18px; font-size:13px; }
+  .note b { color:#92400e; }
+  .redline-demo { border:1.5px solid #fda4af; background:#fff1f2; color:#be123c; border-radius:8px; padding:6px 12px; font-weight:700; display:inline-block; }
+  .footer { border-top:1.5px solid var(--gray-200); margin-top:56px; padding-top:24px; display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--gray-500); }
+  @media (max-width:720px){ .cover{padding:48px 28px;} .page{padding:40px 20px 64px;} .grid-2,.grid-3{grid-template-columns:1fr;} h1{font-size:26px;} }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="cover-inner">
+    <div class="eyebrow">OPERATIONS GUIDE</div>
+    <div class="brand">K.AI <span>Keyaki</span></div>
+    <h1>目標設定 権限・承認・一時差戻<br>運用手順書</h1>
+    <p>定量・定性目標設定シートにおける管理者権限の設定方法、承認者割り当て、提出から承認までのフロー、および承認済みシートへの一時差戻（編集許可）の運用手順をまとめた資料です。</p>
+    <div class="meta">
+      <div><strong>対象システム</strong>k-ai-app.vercel.app</div>
+      <div><strong>対象読者</strong>管理者 / 人事管理者 / 承認者 / 全スタッフ</div>
+      <div><strong>バージョン</strong>v1.0</div>
+      <div><strong>公開日</strong>2026年10月</div>
+    </div>
+  </div>
+</section>
+
+<div class="page">
+
+  <div class="intro">
+    <h2>この資料について</h2>
+    <p>目標設定機能の権限は「管理者」「担当承認者（一次・二次）」「設定者（本人）」の3層で構成されます。基本的に、設定者の提出物は<b>割り当てられた承認者と管理者のみ</b>が閲覧・編集でき、承認済みシートは編集ロックされますが、管理者による<b>一時差戻（編集許可）</b>を発行すると設定者・承認者が全項目を編集できるようになり、編集箇所は赤字で記録されます。</p>
+  </div>
+
+  <section class="section">
+    <div class="section-head"><div class="no">1</div><h3>権限の種類と設定方法</h3></div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head"><h4>権限の一覧</h4></div>
+        <div class="card-body">
+          <table>
+            <tr><th>権限</th><th>目標設定シートの扱い</th></tr>
+            <tr><td><span class="badge badge-admin">システム管理者</span></td><td><b>全スタッフ</b>の定量・定性の提出物を閲覧・編集・承認・差戻し可能。一時差戻の発行/解除が可能。</td></tr>
+            <tr><td><span class="badge badge-hr">人事管理者</span></td><td>システム管理者と同等の操作が可能。</td></tr>
+            <tr><td><span class="badge badge-approver">担当承認者</span></td><td>割り当てられた設定者の提出物のみ閲覧・編集・承認・差戻し可能。</td></tr>
+            <tr><td><span class="badge badge-owner">設定者（本人）</span></td><td>自分の提出物の閲覧・編集が可能。</td></tr>
+            <tr><td><span class="badge badge-none">その他</span></td><td>他人の提出物の閲覧・編集は不可。</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h4>管理者権限の設定手順</h4></div>
+        <div class="card-body">
+          <ol class="steps">
+            <li><b>機能一覧を開く</b>ログイン後、<span class="url">/features</span> の「管理・運用」にある<b>「アカウント管理」カード</b>を開きます（管理者権限のアカウントのみ表示）。</li>
+            <li><b>アカウントを選択</b>権限を変更したいアカウントの「編集」を押します。</li>
+            <li><b>権限を設定</b>「システム管理者」または「人事管理者」を選択して保存します。</li>
+          </ol>
+          <p style="margin-top:8px">アカウント管理ページの直URL: <span class="url">/settings/accounts</span></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><div class="no">2</div><h3>承認者割り当て</h3></div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head"><h4>割り当て画面</h4></div>
+        <div class="card-body">
+          <p>対象期間（例: 2026年10月）ごとに、設定者一人ひとりへ一次承認者・二次承認者を割り当てます。割り当ては定量・定性の両シートに共通適用されます。</p>
+          <p style="margin-top:8px">割り当て画面: <span class="url">/approvals/goal-assignments</span>（機能一覧「管理・運用」→「承認者割り当て」カード）</p>
+          <ul style="margin-top:10px;padding-left:18px">
+            <li>一次承認者は必須。二次承認者は四半期の評価タイミングなどで後から追加可能</li>
+            <li>設定者本人・一次承認者と同じ人物は二次承認者に指定不可</li>
+            <li>対象/対象外の切替と並び順（ドラッグ＆ドロップ）は全期間・全シート共通で保存</li>
+            <li>対象外にした設定者は自動でリスト末尾へ移動</li>
+          </ul>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h4>各状況の見え方</h4></div>
+        <div class="card-body">
+          <table>
+            <tr><th>項目</th><th>表示内容</th></tr>
+            <tr><td>設定者</td><td>名前の下に提出状況バッジ（未対応 / 下書き / 提出済み / 承認済み / 差戻）＋ 確定・差戻ボタン</td></tr>
+            <tr><td>一次承認者</td><td>顔写真アイコン＋名前＋承認状況（未対応 / 提出待ち / 承認待ち / 承認済み / 差戻済み）</td></tr>
+            <tr><td>二次承認者</td><td>一次承認済みのシートが「承認待ち」に切り替わる</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><div class="no">3</div><h3>提出から承認までのフロー</h3></div>
+    <div class="card">
+      <div class="card-body">
+        <ol class="steps">
+          <li><b>設定者がシートを提出</b>定量・定性目標設定シートを記入し「提出」します。</li>
+          <li><b>承認者へ通知</b>担当承認者（一次・二次）のマイページ上部に「承認依頼が届いています」パネルが表示されます。</li>
+          <li><b>シートを確認</b>通知の「シートを確認する」ボタンで確認・承認ページへ直接移動します。提出時と同一のシート形式で入力内容を確認できます。</li>
+          <li><b>承認 or 差戻</b>問題なければ「確定」で承認。修正が必要なら「差戻」を選び、理由を入力して設定者へ差し戻します。</li>
+          <li><b>進捗の記入</b>承認後は設定者・承認者がマイページや承認一覧から進捗数値・結果数値を直接入力できます。</li>
+        </ol>
+        <div class="note" style="margin-top:10px"><b>閲覧範囲:</b>承認一覧（<span class="url">/approvals/goal-navigators</span>）には、管理者は全件、担当承認者は自分の担当分のみ表示されます。担当割り当てがまだ無いアカウントでも、割り当てられれば自動的に承認一覧を利用できるようになります。</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><div class="no">4</div><h3>一時差戻（編集許可）機能</h3></div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head"><h4>できること</h4></div>
+        <div class="card-body">
+          <p>設定者からの希望などに応じて、管理者が<b>承認済みシートを一時的に編集可能な状態</b>にできます。一時差戻中は次のルールが適用されます。</p>
+          <ul style="margin-top:10px;padding-left:18px">
+            <li>設定者・承認者のどちらも<b>全項目を編集・保存</b>できる</li>
+            <li>編集された項目は<b>赤枠＋赤字</b>で表示され、すぐ下に<span class="redline-demo">編集者: ○○（日時）</span>が記録される</li>
+            <li>元の値に戻すと赤字表示は自動で消える</li>
+            <li>一時差戻していない承認済みシートは、進捗数値・結果数値のみ編集可能</li>
+          </ul>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h4>操作手順（管理者）</h4></div>
+        <div class="card-body">
+          <ol class="steps">
+            <li><b>対象シートを開く</b>承認一覧または承認済み一覧から、対象の承認済みシート詳細を開きます。</li>
+            <li><b>一時差戻を発行</b>シート上部の<b>「一時差戻（編集許可）」</b>ボタンを押し、理由（任意）を入力して発行します。</li>
+            <li><b>編集を実施</b>設定者・承認者がシートを編集・保存します。編集箇所は赤字で記録されます。</li>
+            <li><b>編集を終了</b><b>「編集を終了してロック」</b>ボタンで再ロックすると、以降は進捗数値・結果数値のみ編集可能に戻ります。</li>
+          </ol>
+          <p style="margin-top:8px">操作対象ページ: <span class="url">/approvals/goal-navigators/[ID]</span>（シート詳細）</p>
+        </div>
+      </div>
+    </div>
+    <div class="note" style="margin-top:16px"><b>注意:</b>一時差戻の発行/解除は管理者（システム管理者・人事管理者）のみ可能です。設定者のマイページ（過去の目標履歴）にも「一時差戻中」の案内が表示され、同じく赤字編集ができます。</div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><div class="no">5</div><h3>アクセス権限 早見表</h3></div>
+    <div class="card">
+      <div class="card-body">
+        <table>
+          <tr><th>操作</th><th>管理者</th><th>担当承認者</th><th>設定者</th><th>その他</th></tr>
+          <tr><td>シートの閲覧</td><td>全件</td><td>担当分のみ</td><td>自分のみ</td><td>不可</td></tr>
+          <tr><td>入力内容の編集（承認前）</td><td>可能</td><td>可能</td><td>可能</td><td>不可</td></tr>
+          <tr><td>入力内容の編集（承認済み）</td><td><b>一時差戻中のみ</b></td><td><b>一時差戻中のみ</b><br>（通常時は進捗・結果数値のみ）</td><td><b>一時差戻中のみ</b><br>（通常時は進捗・結果数値のみ）</td><td>不可</td></tr>
+          <tr><td>承認（確定）・差戻</td><td>全件可能</td><td>担当分のみ</td><td>不可</td><td>不可</td></tr>
+          <tr><td>一時差戻の発行/解除</td><td><b>可能</b></td><td>不可</td><td>不可</td><td>不可</td></tr>
+          <tr><td>進捗入力・コメント</td><td>可能</td><td>担当分のみ</td><td>可能</td><td>不可</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer">
+    <div>K.AI / Keyaki Portal — 目標設定 権限・承認・一時差戻 運用手順書 v1.0</div>
+    <div>© 2026 Keyaki</div>
+  </div>
+
+</div>
+</body>
+</html>

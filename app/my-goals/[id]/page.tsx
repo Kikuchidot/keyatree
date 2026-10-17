@@ -2,6 +2,7 @@ import Link from "next/link";
 import RecordStatusBadge from "@/components/goal-navigator/RecordStatusBadge";
 import OwnerSheetEditor from "@/components/goal-navigator/OwnerSheetEditor";
 import { getNavigatorRecordDetail } from "@/lib/goalNavigatorActions";
+import { getSheetTemplateAction } from "@/lib/sheetTemplateActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -34,6 +35,7 @@ export default async function MyGoalDetailPage({
 
   const { record } = result;
   const a = record.answers || {};
+  const template = await getSheetTemplateAction();
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -53,9 +55,23 @@ export default async function MyGoalDetailPage({
           </div>
         </div>
 
+        {record.tempEdit ? (
+          <div className="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4">
+            <span className="inline-block rounded-full bg-amber-500 px-3 py-1 text-xs font-black text-white">
+              一時差戻中（編集許可）
+            </span>
+            <p className="mt-2 text-xs text-amber-800">
+              管理者（{record.tempEdit.byName}）により編集が許可されています。
+              {record.tempEdit.reason ? ` 理由: ${record.tempEdit.reason}` : ""}
+              編集した箇所は赤字で記録されます。
+            </p>
+          </div>
+        ) : null}
+
         <OwnerSheetEditor
           recordId={record.id}
           kind={record.kind}
+          status={record.status}
           initialAnswers={record.answers}
           profile={{
             name: record.employeeName,
@@ -63,6 +79,9 @@ export default async function MyGoalDetailPage({
             department: record.department,
             grade: a.grade,
           }}
+          tempEditActive={Boolean(record.tempEdit)}
+          fieldEdits={record.fieldEdits}
+          template={template}
         />
       </main>
     </div>

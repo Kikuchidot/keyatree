@@ -171,3 +171,43 @@ export async function getAvailablePeriods(): Promise<string[]> {
   periods.add(current);
   return Array.from(periods).sort((a, b) => b.localeCompare(a));
 }
+
+export async function deleteVote(voteId: string): Promise<void> {
+  if (isSupabaseEnabled()) {
+    const supabase = getSupabaseAdmin();
+    await ensureBucket(supabase);
+    await supabase.storage.from(BUCKET).remove([votePath(voteId)]);
+  } else {
+    const store = getStore();
+    const idx = store.findIndex((v) => v.id === voteId);
+    if (idx >= 0) store.splice(idx, 1);
+  }
+}
+
+export async function updateVote(
+  voteId: string,
+  input: {
+    message?: string;
+    votedAt?: string;
+  }
+): Promise<MvgVote | null> {
+  const votes = await listVotes();
+  const target = votes.find((v) => v.id === voteId);
+  if (!target) return null;
+  const updated: MvgVote = { ...target };
+  if (input.message !== undefined) updated.message = input.message;
+  if (input.votedAt !== undefined) {
+    updated.votedAt = input.votedAt;
+    updated.period = new Date(input.votedAt).getFullYear().toString();
+  }
+  if (isSupabaseEnabled()) {
+    const supabase = getSupabaseAdmin();
+    await ensureBucket(supabase);
+    await putJson(supabase, votePath(updated.id), updated);
+  } else {
+    const store = getStore();
+    const idx = store.findIndex((v) => v.id === voteId);
+    if (idx >= 0) store[idx] = updated;
+  }
+  return updated;
+}

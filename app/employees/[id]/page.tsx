@@ -12,6 +12,7 @@ import MonthlyGoalCard from "@/components/MonthlyGoalCard";
 import BravoButton from "@/components/BravoButton";
 import SeedGoalData from "@/components/goal-navigator/SeedGoalData";
 import EmployeeMvgHistory from "@/components/mvg/EmployeeMvgHistory";
+import ApprovalNoticePanel from "@/components/goal-navigator/ApprovalNoticePanel";
 
 type SessionInfo = {
   id?: string;
@@ -147,6 +148,9 @@ export default function EmployeePage() {
 
           {/* メインコンテンツ */}
           <div className="flex-1 space-y-5">
+
+            {/* 承認依頼の通知 */}
+            <ApprovalNoticePanel employeeId={id} />
 
             {/* 今月の目標 */}
             <MonthlyGoalCard

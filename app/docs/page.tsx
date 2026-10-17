@@ -3,6 +3,17 @@ import BackButton from "@/components/BackButton";
 
 const docs = [
   {
+    id: "goal-permissions-guide",
+    href: "/docs/goal-permissions-guide",
+    label: "GUIDE",
+    color: "from-teal-500 to-emerald-500",
+    title: "目標設定 権限・承認・一時差戻 運用手順書",
+    desc: "管理者権限の設定方法、承認者割り当て、提出から承認までのフロー、承認済みシートへの一時差戻（編集許可）の操作手順とアクセス権限早見表。",
+    tags: ["運用手順", "権限", "承認", "一時差戻"],
+    date: "2026.10",
+    status: "公開中",
+  },
+  {
     id: "tech-overview",
     href: "/docs/tech-overview",
     label: "TECH",

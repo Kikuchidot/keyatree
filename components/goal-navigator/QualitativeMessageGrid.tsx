@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import ViewableBox from "@/components/goal-navigator/ViewableBox";
+import type { FieldEdits } from "@/components/goal-navigator/redline";
 
 /**
  * 評価者メッセージ欄。
@@ -19,22 +21,20 @@ const COLUMNS: { prefix: string; label: string }[] = [
   { prefix: "q_msg_second", label: "二次評価者メッセージ" },
 ];
 
-function ExpandIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M9 3H3v6M15 21h6v-6M3 3l7 7M21 21l-7-7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 export default function QualitativeMessageGrid({
   answers,
   onChange,
   disabled = false,
+  fieldEdits,
+  isFieldLocked,
+  fieldNote,
 }: {
   answers: Record<string, string>;
   onChange: (key: string, value: string) => void;
   disabled?: boolean;
+  fieldEdits?: FieldEdits;
+  isFieldLocked?: (key: string) => boolean;
+  fieldNote?: (key: string) => string | undefined;
 }) {
   const [editing, setEditing] = useState<{ key: string; label: string } | null>(null);
   const [draft, setDraft] = useState("");
@@ -86,19 +86,18 @@ export default function QualitativeMessageGrid({
                     <span className="mb-1 block truncate text-xs font-bold text-gray-600" title={label}>
                       {label}
                     </span>
-                    <button
-                      type="button"
+                    <ViewableBox
+                      value={value}
+                      placeholder="クリックして入力"
                       onClick={() => open(key, label)}
                       disabled={disabled}
-                      className="relative flex h-20 w-full items-start rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-left text-xs leading-5 text-gray-800 transition hover:border-indigo-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <span className="line-clamp-2 whitespace-pre-wrap pr-6">
-                        {value || <span className="text-gray-400">クリックして入力</span>}
-                      </span>
-                      <span className="absolute bottom-2 right-2 text-gray-400">
-                        <ExpandIcon />
-                      </span>
-                    </button>
+                      locked={Boolean(isFieldLocked?.(key))}
+                      note={fieldNote?.(key)}
+                      height="h-20"
+                      clamp="line-clamp-2"
+                      fieldEdits={fieldEdits}
+                      fieldKey={key}
+                    />
                   </div>
                 );
               })}

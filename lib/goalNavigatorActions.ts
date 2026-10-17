@@ -6,11 +6,11 @@ import {
   addProgressReply,
   addProgressUpdate,
   approveNavigatorRecord,
-  canApprove,
   getNavigatorRecordById,
   getServerSession,
   listNavigatorRecords,
   rejectNavigatorRecord,
+  setTempEditState,
   updateNavigatorMetrics,
   updateNavigatorAnswers,
   type ItemComment,
@@ -18,6 +18,15 @@ import {
   type NavigatorRecord,
   upsertNavigatorRecord,
 } from "@/lib/goalNavigatorStore";
+import { mergeSheetTemplate } from "@/lib/sheetTemplate";
+import { getSavedSheetTemplate } from "@/lib/sheetTemplateStore";
+import {
+  filterRecordsForApprover,
+  hasApproverAccess,
+  isAssignedApproverOf,
+  isGoalAdmin,
+  isOwnerOf,
+} from "@/lib/goalAccess";
 import { getStaff } from "@/lib/staffServerStore";
 
 export async function saveNavigatorRecord(input: {
@@ -64,7 +73,12 @@ export async function saveNavigatorRecord(input: {
 
 export async function approveNavigatorRecordAction(recordId: string, comment?: string) {
   const session = await getServerSession();
-  if (!canApprove(session)) {
+  if (!session) {
+    return { ok: false as const, message: "ログイン情報を確認できませんでした" };
+  }
+  const target = await getNavigatorRecordById(recordId);
+  if (!target) return { ok: false as const, message: "対象レコードが見つかりません" };
+  if (!isGoalAdmin(session) && !(await isAssignedApproverOf(session, target))) {
     return { ok: false as const, message: "承認権限がありません" };
   }
 
@@ -88,7 +102,12 @@ export async function approveNavigatorRecordAction(recordId: string, comment?: s
 
 export async function rejectNavigatorRecordAction(recordId: string, comment: string) {
   const session = await getServerSession();
-  if (!canApprove(session)) {
+  if (!session) {
+    return { ok: false as const, message: "ログイン情報を確認できませんでした" };
+  }
+  const target = await getNavigatorRecordById(recordId);
+  if (!target) return { ok: false as const, message: "対象レコードが見つかりません" };
+  if (!isGoalAdmin(session) && !(await isAssignedApproverOf(session, target))) {
     return { ok: false as const, message: "承認権限がありません" };
   }
   if (!comment.trim()) {
@@ -113,9 +132,16 @@ export async function rejectNavigatorRecordAction(recordId: string, comment: str
   return { ok: true as const, record };
 }
 
-/** 管理者は全件、本人は自分のレコードのみ閲覧可能 */
+/** 管理者・担当承認者・本人とも閲覧可能。isAdmin はシステム管理者/人事管理者 */
 export async function getNavigatorRecordDetail(recordId: string): Promise<
-  { ok: true; record: NavigatorRecord; canApprove: boolean; isOwner: boolean } | { ok: false; message: string }
+  | {
+      ok: true;
+      record: NavigatorRecord;
+      canApprove: boolean;
+      isOwner: boolean;
+      isAdmin: boolean;
+    }
+  | { ok: false; message: string }
 > {
   const session = await getServerSession();
   if (!session) return { ok: false, message: "ログイン情報を確認できませんでした" };
@@ -123,15 +149,52 @@ export async function getNavigatorRecordDetail(recordId: string): Promise<
   const record = await getNavigatorRecordById(recordId);
   if (!record) return { ok: false, message: "対象レコードが見つかりません" };
 
-  const ownerId = session.employeeId || session.id || session.email;
-  const isOwner = Boolean(ownerId && record.ownerId === ownerId);
-  const approver = canApprove(session);
+  const isOwner = isOwnerOf(session, record);
+  const admin = isGoalAdmin(session);
+  const approver = admin || (await isAssignedApproverOf(session, record));
 
   if (!approver && !isOwner) {
     return { ok: false, message: "この目標設定を閲覧する権限がありません" };
   }
 
-  return { ok: true, record, canApprove: approver, isOwner };
+  return { ok: true, record, canApprove: approver, isOwner, isAdmin: admin };
+}
+
+/** 一時差戻（編集許可）の発行/解除: 管理者のみ */
+export async function setTempEditAction(
+  recordId: string,
+  enable: boolean,
+  reason?: string
+): Promise<{ ok: boolean; message?: string }> {
+  const session = await getServerSession();
+  if (!session) {
+    return { ok: false as const, message: "ログイン情報を確認できませんでした" };
+  }
+  if (!isGoalAdmin(session)) {
+    return { ok: false as const, message: "一時差戻は管理者のみ操作できます" };
+  }
+
+  const target = await getNavigatorRecordById(recordId);
+  if (!target) return { ok: false as const, message: "対象レコードが見つかりません" };
+  if (enable && target.status !== "approved") {
+    return { ok: false as const, message: "承認済みのシートのみ一時差戻できます" };
+  }
+
+  const record = await setTempEditState(
+    recordId,
+    enable,
+    { actorId: session.id || session.employeeId, actorName: session.name },
+    reason
+  );
+  if (!record) return { ok: false as const, message: "更新に失敗しました" };
+
+  revalidatePath("/approvals/goal-navigators");
+  revalidatePath(`/approvals/goal-navigators/${recordId}`);
+  revalidatePath("/approvals/goal-navigators/approved");
+  revalidatePath("/my-goals");
+  revalidatePath(`/my-goals/${recordId}`);
+
+  return { ok: true as const };
 }
 
 /** 進捗報告の追加：本人または承認者のみ */
@@ -143,9 +206,8 @@ export async function addProgressUpdateAction(recordId: string, body: string, pe
   const target = await getNavigatorRecordById(recordId);
   if (!target) return { ok: false as const, message: "対象レコードが見つかりません" };
 
-  const ownerId = session.employeeId || session.id || session.email;
-  const isOwner = Boolean(ownerId && target.ownerId === ownerId);
-  if (!isOwner && !canApprove(session)) {
+  const isOwner = isOwnerOf(session, target);
+  if (!isOwner && !isGoalAdmin(session) && !(await isAssignedApproverOf(session, target))) {
     return { ok: false as const, message: "進捗を入力する権限がありません" };
   }
 
@@ -173,9 +235,8 @@ export async function addProgressReplyAction(recordId: string, updateId: string,
   const target = await getNavigatorRecordById(recordId);
   if (!target) return { ok: false as const, message: "対象レコードが見つかりません" };
 
-  const ownerId = session.employeeId || session.id || session.email;
-  const isOwner = Boolean(ownerId && target.ownerId === ownerId);
-  const approver = canApprove(session);
+  const isOwner = isOwnerOf(session, target);
+  const approver = isGoalAdmin(session) || (await isAssignedApproverOf(session, target));
   if (!isOwner && !approver) {
     return { ok: false as const, message: "コメントを入力する権限がありません" };
   }
@@ -201,9 +262,8 @@ export async function updateGoalMetricsAction(recordId: string, patch: Record<st
   const target = await getNavigatorRecordById(recordId);
   if (!target) return { ok: false as const, message: "対象レコードが見つかりません" };
 
-  const ownerId = session.employeeId || session.id || session.email;
-  const isOwner = Boolean(ownerId && target.ownerId === ownerId);
-  if (!isOwner && !canApprove(session)) {
+  const isOwner = isOwnerOf(session, target);
+  if (!isOwner && !isGoalAdmin(session) && !(await isAssignedApproverOf(session, target))) {
     return { ok: false as const, message: "この目標を更新する権限がありません" };
   }
 
@@ -234,18 +294,47 @@ export async function updateGoalMetricsAction(recordId: string, patch: Record<st
   return { ok: true as const, record };
 }
 
-/** 承認者による入力内容の編集・保存：承認者（管理者/人事）のみ。承認ステータスは変えない */
+/** 承認済みシートの編集可否: 一時差戻中のみ全項目可。未発行ならテンプレート設定の進捗入力・結果入力項目のみ可 */
+async function checkApprovedEditPermission(
+  target: NavigatorRecord,
+  answers: Record<string, string>
+): Promise<string | null> {
+  if (target.status !== "approved" || target.tempEdit) return null;
+  const template = mergeSheetTemplate(await getSavedSheetTemplate());
+  const fieldCfgs = template[target.kind] ?? {};
+  const changed = Object.keys(answers).filter(
+    (k) => String(answers[k] ?? "") !== (target.answers[k] ?? "")
+  );
+  const disallowed = changed.filter((k) => {
+    const cfg = fieldCfgs[k];
+    if (!cfg) return true;
+    return cfg.timing !== "progress" && cfg.timing !== "result";
+  });
+  if (disallowed.length > 0) {
+    return "承認済みのため、進捗入力・結果入力の項目以外は編集できません。編集するには管理者による一時差戻が必要です。";
+  }
+  return null;
+}
+
+/** 承認者による入力内容の編集・保存：管理者または担当承認者のみ。承認ステータスは変えない */
 export async function updateNavigatorAnswersAction(
   recordId: string,
   answers: Record<string, string>
 ) {
   const session = await getServerSession();
-  if (!canApprove(session)) {
-    return { ok: false as const, message: "編集する権限がありません（承認者のみ）" };
+  if (!session) {
+    return { ok: false as const, message: "ログイン情報を確認できませんでした" };
   }
 
   const target = await getNavigatorRecordById(recordId);
   if (!target) return { ok: false as const, message: "対象レコードが見つかりません" };
+
+  if (!isGoalAdmin(session) && !(await isAssignedApproverOf(session, target))) {
+    return { ok: false as const, message: "編集する権限がありません（承認者のみ）" };
+  }
+
+  const locked = await checkApprovedEditPermission(target, answers);
+  if (locked) return { ok: false as const, message: locked };
 
   const safeAnswers: Record<string, string> = {};
   for (const [k, v] of Object.entries(answers)) {
@@ -279,12 +368,14 @@ export async function updateOwnNavigatorAnswersAction(
   const target = await getNavigatorRecordById(recordId);
   if (!target) return { ok: false as const, message: "対象レコードが見つかりません" };
 
-  const ownerId = session.employeeId || session.id || session.email;
-  const isOwner = Boolean(ownerId && target.ownerId === ownerId);
-  const approver = canApprove(session);
+  const isOwner = isOwnerOf(session, target);
+  const approver = isGoalAdmin(session) || (await isAssignedApproverOf(session, target));
   if (!isOwner && !approver) {
     return { ok: false as const, message: "この目標設定を編集する権限がありません" };
   }
+
+  const locked = await checkApprovedEditPermission(target, answers);
+  if (locked) return { ok: false as const, message: locked };
 
   const safeAnswers: Record<string, string> = {};
   for (const [k, v] of Object.entries(answers)) {
@@ -307,14 +398,21 @@ export async function updateOwnNavigatorAnswersAction(
   return { ok: true as const, record };
 }
 
-/** 目標項目への承認者コメント：承認者（管理者/人事）のみ。複数人・複数件可 */
+/** 目標項目への承認者コメント：管理者または担当承認者のみ。複数人・複数件可 */
 export async function addItemCommentAction(
   recordId: string,
   target: ItemComment["target"],
   body: string
 ) {
   const session = await getServerSession();
-  if (!canApprove(session)) {
+  if (!session) {
+    return { ok: false as const, message: "ログイン情報を確認できませんでした" };
+  }
+
+  const record0 = await getNavigatorRecordById(recordId);
+  if (!record0) return { ok: false as const, message: "対象レコードが見つかりません" };
+
+  if (!isGoalAdmin(session) && !(await isAssignedApproverOf(session, record0))) {
     return { ok: false as const, message: "コメントする権限がありません（承認者のみ）" };
   }
   if (!body.trim()) return { ok: false as const, message: "コメントを入力してください" };
@@ -344,22 +442,24 @@ export async function getMyNavigatorRecords(kind?: NavigatorKind): Promise<Navig
 
 export async function getApprovalNavigatorRecords(kind?: NavigatorKind): Promise<NavigatorRecord[]> {
   const session = await getServerSession();
-  if (!canApprove(session)) return [];
+  if (!session) return [];
   const records = await listNavigatorRecords({ kind, includeAll: true });
-  return records.filter((record) => record.status === "submitted" || record.status === "rejected");
+  const scoped = await filterRecordsForApprover(session, records);
+  return scoped.filter((record) => record.status === "submitted" || record.status === "rejected");
 }
 
-/** 承認一覧などのアクセス可否（管理者/人事のみ true） */
+/** 承認一覧などのアクセス可否: 管理者（全件）または担当承認者（担当分） */
 export async function getApprovalAccess(): Promise<boolean> {
   const session = await getServerSession();
-  return canApprove(session);
+  return await hasApproverAccess(session);
 }
 
 export async function getApprovedNavigatorRecords(kind?: NavigatorKind): Promise<NavigatorRecord[]> {
   const session = await getServerSession();
-  if (!canApprove(session)) return [];
+  if (!session) return [];
   const records = await listNavigatorRecords({ kind, includeAll: true });
-  return records.filter((record) => record.status === "approved");
+  const scoped = await filterRecordsForApprover(session, records);
+  return scoped.filter((record) => record.status === "approved");
 }
 
 /** ログイン中スタッフのプロフィール（名前・部署・グレード）を返す。定性シートの能力項目フィルタ等で使用。 */

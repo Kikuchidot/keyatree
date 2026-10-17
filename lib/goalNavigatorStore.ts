@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { getSupabaseAdmin, isSupabaseEnabled } from "@/lib/supabaseServer";
+import { normalizeLegacyAnswers } from "./goalNavigatorLegacy";
 
 /**
  * UTF-8バイト列がLatin-1として解釈されて生じた文字化け（mojibake）を復元する。
@@ -60,6 +61,24 @@ export type NavigatorSession = {
   employeeId?: string;
 };
 
+/** 一時差戻（編集許可）状態: 管理者が承認済みシートに対して発行 */
+export type TempEditState = {
+  byId: string;
+  byName: string;
+  at: string;
+  reason?: string;
+  /** 一時差戻時点のanswersスナップショット（赤字判定の基準） */
+  originals?: Record<string, string>;
+};
+
+/** 一時差戻中に編集された項目の記録（赤字表示・編集者表示に使用） */
+export type FieldEdit = {
+  value: string;
+  byId: string;
+  byName: string;
+  at: string;
+};
+
 export type NavigatorRecord = {
   id: string;
   ownerId: string;
@@ -82,6 +101,8 @@ export type NavigatorRecord = {
   itemComments?: ItemComment[];
   lastEditedBy?: string;
   lastEditedAt?: string;
+  tempEdit?: TempEditState;
+  fieldEdits?: Record<string, FieldEdit>;
 };
 
 type AuditActor = {
@@ -256,11 +277,16 @@ export async function listNavigatorRecords(params: {
     records = getStore();
   }
 
-  const filtered = records.filter((record) => {
-    if (params.kind && record.kind !== params.kind) return false;
-    if (!params.includeAll && params.ownerId && record.ownerId !== params.ownerId) return false;
-    return true;
-  });
+  const filtered = records
+    .filter((record) => {
+      if (params.kind && record.kind !== params.kind) return false;
+      if (!params.includeAll && params.ownerId && record.ownerId !== params.ownerId) return false;
+      return true;
+    })
+    .map((record) => ({
+      ...record,
+      answers: normalizeLegacyAnswers(record.answers || {}, record.kind),
+    }));
   return filtered.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
@@ -294,7 +320,7 @@ export async function upsertNavigatorRecord(input: {
           department: input.department,
           title: input.title,
           status: input.status,
-          answers: input.answers,
+          answers: { ...existing.answers, ...input.answers },
           updatedAt: now,
           submittedAt: input.status === "submitted" ? now : existing.submittedAt,
         }
@@ -338,7 +364,7 @@ export async function upsertNavigatorRecord(input: {
       department: input.department,
       title: input.title,
       status: input.status,
-      answers: input.answers,
+      answers: { ...current.answers, ...input.answers },
       updatedAt: now,
       submittedAt: input.status === "submitted" ? now : current.submittedAt,
     };
@@ -409,12 +435,19 @@ export async function approveNavigatorRecord(recordId: string, approverName: str
 
 // ---- Single record fetch ----
 export async function getNavigatorRecordById(recordId: string): Promise<NavigatorRecord | null> {
+  let record: NavigatorRecord | null;
   if (isSupabaseEnabled()) {
     const supabase = getSupabaseAdmin();
     await ensureBucket(supabase);
-    return await getJson<NavigatorRecord>(supabase, recordPath(recordId));
+    record = await getJson<NavigatorRecord>(supabase, recordPath(recordId));
+  } else {
+    record = getStore().find((item) => item.id === recordId) ?? null;
   }
-  return getStore().find((item) => item.id === recordId) ?? null;
+  if (!record) return null;
+  return {
+    ...record,
+    answers: normalizeLegacyAnswers(record.answers || {}, record.kind),
+  };
 }
 
 // ---- Reject（やり直し依頼）----
@@ -591,20 +624,35 @@ export async function updateNavigatorMetrics(recordId: string, patch: Record<str
 }
 
 // ---- 承認者による入力内容の編集（提出内容を上書き。承認ステータスは変更しない）----
-export async function updateNavigatorAnswers(
+/**
+ * 一時差戻（編集許可）の発行/解除。
+ * 発行時は現状のanswersをスナップショットし、赤字判定の基準とする。
+ */
+export async function setTempEditState(
   recordId: string,
-  answers: Record<string, string>,
-  actor?: AuditActor
-) {
+  enable: boolean,
+  actor: AuditActor,
+  reason?: string
+): Promise<NavigatorRecord | null> {
   const now = new Date().toISOString();
 
-  const applyPatch = (record: NavigatorRecord): NavigatorRecord => ({
-    ...record,
-    answers: { ...record.answers, ...answers },
-    updatedAt: now,
-    lastEditedBy: actor?.actorName,
-    lastEditedAt: now,
-  });
+  const applyPatch = (record: NavigatorRecord): NavigatorRecord => {
+    if (!enable) {
+      const { tempEdit: _drop, ...rest } = record;
+      return { ...rest, updatedAt: now };
+    }
+    return {
+      ...record,
+      tempEdit: {
+        byId: actor.actorId || "",
+        byName: actor.actorName || "管理者",
+        at: now,
+        reason: reason || undefined,
+        originals: { ...record.answers },
+      },
+      updatedAt: now,
+    };
+  };
 
   if (isSupabaseEnabled()) {
     const supabase = getSupabaseAdmin();
@@ -626,10 +674,76 @@ export async function updateNavigatorAnswers(
   const records = getStore();
   const record = records.find((item) => item.id === recordId);
   if (!record) return null;
-  record.answers = { ...record.answers, ...answers };
-  record.updatedAt = now;
-  record.lastEditedBy = actor?.actorName;
-  record.lastEditedAt = now;
+  const next = applyPatch(record);
+  Object.assign(record, next);
+  return record;
+}
+
+export async function updateNavigatorAnswers(
+  recordId: string,
+  answers: Record<string, string>,
+  actor?: AuditActor
+) {
+  const now = new Date().toISOString();
+
+  const applyPatch = (record: NavigatorRecord): NavigatorRecord => {
+    const nextAnswers = { ...record.answers };
+    let fieldEdits = record.fieldEdits ? { ...record.fieldEdits } : undefined;
+    const tempEdit = record.tempEdit;
+
+    for (const [k, v] of Object.entries(answers)) {
+      const val = String(v ?? "");
+      nextAnswers[k] = val;
+      // 一時差戻中のみ、元の値から変化した項目を赤字記録として残す
+      if (tempEdit) {
+        const original = tempEdit.originals?.[k];
+        if (original === undefined) continue;
+        if (original !== val) {
+          fieldEdits = fieldEdits ?? {};
+          fieldEdits[k] = {
+            value: val,
+            byId: actor?.actorId || "",
+            byName: actor?.actorName || "",
+            at: now,
+          };
+        } else if (fieldEdits) {
+          delete fieldEdits[k];
+        }
+      }
+    }
+
+    return {
+      ...record,
+      answers: nextAnswers,
+      fieldEdits,
+      updatedAt: now,
+      lastEditedBy: actor?.actorName,
+      lastEditedAt: now,
+    };
+  };
+
+  if (isSupabaseEnabled()) {
+    const supabase = getSupabaseAdmin();
+    await ensureBucket(supabase);
+    const before = await getJson<NavigatorRecord>(supabase, recordPath(recordId));
+    if (!before) return null;
+    const record = applyPatch(before);
+    await putJson(supabase, recordPath(record.id), record);
+    await writeAuditLog(supabase, {
+      entityId: record.id,
+      operation: "update",
+      beforeData: before,
+      afterData: record,
+      actor,
+    });
+    return record;
+  }
+
+  const records = getStore();
+  const record = records.find((item) => item.id === recordId);
+  if (!record) return null;
+  const next = applyPatch(record);
+  Object.assign(record, next);
   return record;
 }
 

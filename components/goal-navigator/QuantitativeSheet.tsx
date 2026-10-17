@@ -1,21 +1,42 @@
 "use client";
 
+import { RedlineNote, redlineCls, type FieldEdits } from "@/components/goal-navigator/redline";
+
 /**
  * 定量目標設定シート（入力フォームと同一レイアウト）。
  * 提出フォーム・承認画面の両方で再利用する共有コンポーネント。
  * disabled=true で読み取り専用表示になる。
+ * fieldEdits を渡すと一時差戻中に編集された項目を赤枠・赤字で表示する。
+ * isFieldLocked を渡すとシートテンプレート設定に基づき項目単位でロックする。
  */
 export default function QuantitativeSheet({
   answers,
   onChange,
   disabled = false,
   profile,
+  fieldEdits,
+  isFieldLocked,
+  fieldNote,
 }: {
   answers: Record<string, string>;
   onChange: (key: string, value: string) => void;
   disabled?: boolean;
   profile: { name?: string; stage?: string; grade?: string };
+  fieldEdits?: FieldEdits;
+  isFieldLocked?: (key: string) => boolean;
+  fieldNote?: (key: string) => string | undefined;
 }) {
+  const locked = (k: string) => Boolean(isFieldLocked?.(k));
+  const note = (k: string) => (locked(k) ? fieldNote?.(k) : undefined);
+  const noteEl = (k: string) => {
+    const text = note(k);
+    if (!text) return null;
+    return (
+      <span className="mt-1 inline-block rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-bold text-gray-500">
+        {text}
+      </span>
+    );
+  };
   const areaCls =
     "mt-1 w-full text-sm text-gray-900 border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:bg-gray-50 disabled:text-gray-500";
   const inputCls =
@@ -29,9 +50,11 @@ export default function QuantitativeSheet({
         value={answers[k] ?? ""}
         onChange={(e) => onChange(k, e.target.value)}
         placeholder={placeholder}
-        disabled={disabled}
-        className={areaCls}
+        disabled={disabled || locked(k)}
+        className={redlineCls(areaCls, fieldEdits, k)}
       />
+      <RedlineNote edits={fieldEdits} fieldKey={k} />
+      {noteEl(k)}
     </label>
   );
   const fText = (k: string, label: string, placeholder?: string) => (
@@ -42,9 +65,11 @@ export default function QuantitativeSheet({
         value={answers[k] ?? ""}
         onChange={(e) => onChange(k, e.target.value)}
         placeholder={placeholder}
-        disabled={disabled}
-        className={inputCls}
+        disabled={disabled || locked(k)}
+        className={redlineCls(inputCls, fieldEdits, k)}
       />
+      <RedlineNote edits={fieldEdits} fieldKey={k} />
+      {noteEl(k)}
     </label>
   );
   const fDate = (k: string, label: string) => (
@@ -54,9 +79,11 @@ export default function QuantitativeSheet({
         type="date"
         value={answers[k] ?? ""}
         onChange={(e) => onChange(k, e.target.value)}
-        disabled={disabled}
-        className={inputCls}
+        disabled={disabled || locked(k)}
+        className={redlineCls(inputCls, fieldEdits, k)}
       />
+      <RedlineNote edits={fieldEdits} fieldKey={k} />
+      {noteEl(k)}
     </label>
   );
   const fNum = (k: string, label: string, placeholder = "数字のみ入力・単位入力不要") => (
@@ -68,9 +95,11 @@ export default function QuantitativeSheet({
         value={answers[k] ?? ""}
         onChange={(e) => onChange(k, e.target.value)}
         placeholder={placeholder}
-        disabled={disabled}
-        className={inputCls}
+        disabled={disabled || locked(k)}
+        className={redlineCls(inputCls, fieldEdits, k)}
       />
+      <RedlineNote edits={fieldEdits} fieldKey={k} />
+      {noteEl(k)}
     </label>
   );
   const sectionTitle = (label: string, hint?: string) => (
