@@ -26,6 +26,8 @@ import {
   isAssignedApproverOf,
   isGoalAdmin,
   isOwnerOf,
+  periodFromTitle,
+  dedupeRecordsByPeriod,
 } from "@/lib/goalAccess";
 import { getStaff } from "@/lib/staffServerStore";
 
@@ -46,8 +48,21 @@ export async function saveNavigatorRecord(input: {
   const ownerId = session.employeeId || session.id || input.answers.employeeId || input.answers.email || session.email;
   const employeeName = input.answers.name || session.name;
 
+  // 同じ設定者・種別・年月の既存レコードがあれば更新する（重複防止）
+  let existingId = input.id;
+  if (!existingId) {
+    const period = periodFromTitle(input.title);
+    if (period) {
+      const all = await listNavigatorRecords({ kind: input.kind, ownerId, employeeId });
+      const samePeriod = all.find((r) => periodFromTitle(r.title) === period);
+      if (samePeriod) {
+        existingId = samePeriod.id;
+      }
+    }
+  }
+
   const record = await upsertNavigatorRecord({
-    id: input.id,
+    id: existingId,
     ownerId,
     kind: input.kind,
     employeeId,
@@ -437,7 +452,8 @@ export async function getMyNavigatorRecords(kind?: NavigatorKind): Promise<Navig
   const session = await getServerSession();
   const ownerId = session?.employeeId || session?.id || session?.email;
   if (!ownerId) return [];
-  return await listNavigatorRecords({ kind, ownerId, employeeId: session.employeeId });
+  const records = await listNavigatorRecords({ kind, ownerId, employeeId: session.employeeId });
+  return dedupeRecordsByPeriod(records);
 }
 
 export async function getApprovalNavigatorRecords(kind?: NavigatorKind): Promise<NavigatorRecord[]> {
@@ -445,7 +461,8 @@ export async function getApprovalNavigatorRecords(kind?: NavigatorKind): Promise
   if (!session) return [];
   const records = await listNavigatorRecords({ kind, includeAll: true });
   const scoped = await filterRecordsForApprover(session, records);
-  return scoped.filter((record) => record.status === "submitted" || record.status === "rejected");
+  const deduped = dedupeRecordsByPeriod(scoped);
+  return deduped.filter((record) => record.status === "submitted" || record.status === "rejected");
 }
 
 /** 承認一覧などのアクセス可否: 管理者（全件）または担当承認者（担当分） */
@@ -459,7 +476,8 @@ export async function getApprovedNavigatorRecords(kind?: NavigatorKind): Promise
   if (!session) return [];
   const records = await listNavigatorRecords({ kind, includeAll: true });
   const scoped = await filterRecordsForApprover(session, records);
-  return scoped.filter((record) => record.status === "approved");
+  const deduped = dedupeRecordsByPeriod(scoped);
+  return deduped.filter((record) => record.status === "approved");
 }
 
 /** ログイン中スタッフのプロフィール（名前・部署・グレード）を返す。定性シートの能力項目フィルタ等で使用。 */

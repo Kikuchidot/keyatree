@@ -21,6 +21,24 @@ export function periodFromTitle(title: string | undefined | null): string | null
   return m ? `${m[1]}-${m[2]}` : null;
 }
 
+/** 同じ設定者・種別・年月の重複レコードを、最新 updatedAt の1件に絞る */
+export function dedupeRecordsByPeriod(records: NavigatorRecord[]): NavigatorRecord[] {
+  const map = new Map<string, NavigatorRecord>();
+  for (const r of records) {
+    const period = periodFromTitle(r.title);
+    if (!period) {
+      map.set(r.id, r);
+      continue;
+    }
+    const key = `${r.kind}__${r.employeeId}__${period}`;
+    const existing = map.get(key);
+    if (!existing || (r.updatedAt || "") > (existing.updatedAt || "")) {
+      map.set(key, r);
+    }
+  }
+  return Array.from(map.values());
+}
+
 export function isOwnerOf(
   session: NavigatorSession | null | undefined,
   record: NavigatorRecord
