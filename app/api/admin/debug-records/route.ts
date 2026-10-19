@@ -15,6 +15,8 @@ export async function GET(request: Request) {
     const employeeId = searchParams.get("employeeId") || "";
     const kind = searchParams.get("kind") || "quantitative";
 
+    const recordId = searchParams.get("recordId") || "";
+
     const session = await getServerSession();
     const debugSecret = process.env.DEBUG_SECRET;
     const headerSecret = request.headers.get("x-debug-secret");
@@ -24,6 +26,15 @@ export async function GET(request: Request) {
     }
 
     const all = await listNavigatorRecords({ includeAll: true });
+
+    if (recordId) {
+      const record = all.find((r) => r.id === recordId);
+      if (!record) {
+        return NextResponse.json({ error: "not found" }, { status: 404 });
+      }
+      return NextResponse.json({ record });
+    }
+
     const records = all.filter((r) => {
       if (r.kind !== kind) return false;
       if (employeeId) {
