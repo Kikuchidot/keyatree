@@ -58,6 +58,7 @@ export const defaultMasters: Masters = {
     { id: "e2", label: "契約社員", order: 2 },
     { id: "e3", label: "パートタイム", order: 3 },
     { id: "e4", label: "アルバイト", order: 4 },
+    { id: "e5", label: "退職", order: 5 },
   ],
   blank: [],
 };
