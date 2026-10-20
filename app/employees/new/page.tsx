@@ -1,16 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { permissions, Permission } from "@/lib/permissions";
 import { makeNewEmployee } from "@/lib/staffStore";
+import { fetchMasters, masterSelectOptions, type Masters } from "@/lib/mastersStore";
 import BackButton from "@/components/BackButton";
 
-const teams = ["", "クライアントマネジメントチーム", "リーシングチーム", "リーシングアシスタントチーム", "カスタマーサポートチーム", "カスタマーオペレーションチーム", "アカウントチーム", "マーケティングチーム"];
-const positions = ["代表取締役", "部長", "課長", "主任", "担当者"];
-const grades = ["E1", "E2", "J1", "J2", "J3", "S1", "S2", "S3", "M1", "M2", "M3"];
-const jobTypes = ["営業", "管理", "物件管理", "経営", "経理", "マーケティング"];
-const employmentTypes = ["正社員", "契約社員", "パートタイム", "アルバイト"];
 const enneagramTypes = [
   { type: 1, label: "改革者" }, { type: 2, label: "援助者" }, { type: 3, label: "達成者" },
   { type: 4, label: "個人主義者" }, { type: 5, label: "研究者" }, { type: 6, label: "忠実者" },
@@ -34,8 +30,8 @@ type FormData = {
 };
 
 const initial: FormData = {
-  name: "", nameKana: "", team: teams[0], position: positions[4],
-  grade: grades[2], jobType: jobTypes[0], employmentType: employmentTypes[0],
+  name: "", nameKana: "", team: "", position: "",
+  grade: "", jobType: "", employmentType: "",
   joinedAt: new Date().toISOString().slice(0, 10), enneagramType: "3", bio: "",
   email: "", password: "", confirmPassword: "", permissionId: "staff",
 };
@@ -65,6 +61,16 @@ export default function NewEmployeePage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
+  const [masters, setMasters] = useState<Masters>({});
+  const [mastersLoading, setMastersLoading] = useState(true);
+
+  useEffect(() => {
+    setMastersLoading(true);
+    fetchMasters()
+      .then((data) => setMasters(data))
+      .catch(() => setSaveError("マスター選択肢の取得に失敗しました"))
+      .finally(() => setMastersLoading(false));
+  }, []);
 
   const set = (key: keyof FormData, val: string) => {
     setForm((f) => ({ ...f, [key]: val }));
@@ -203,8 +209,8 @@ export default function NewEmployeePage() {
                 {errors.joinedAt && <p className="text-xs text-rose-500 mt-1">{errors.joinedAt}</p>}
               </Field>
               <Field label="雇用形態">
-                <select value={form.employmentType} onChange={(e) => set("employmentType", e.target.value)} className={inputCls}>
-                  {employmentTypes.map((t) => <option key={t}>{t}</option>)}
+                <select value={form.employmentType} onChange={(e) => set("employmentType", e.target.value)} className={inputCls} disabled={mastersLoading}>
+                  {masterSelectOptions(masters, "employmentType").map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                 </select>
               </Field>
             </div>
@@ -213,20 +219,27 @@ export default function NewEmployeePage() {
           {/* ② 所属・役職 */}
           <section className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
             <h2 className="text-sm font-bold text-gray-700 pb-2 border-b">所属・役職</h2>
-            <Field label="所属チーム">
-              <select value={form.team} onChange={(e) => set("team", e.target.value)} className={inputCls}>
-                {teams.map((t) => <option key={t} value={t}>{t || "未設定"}</option>)}
+            <Field label="所属先">
+              <select value={form.team} onChange={(e) => set("team", e.target.value)} className={inputCls} disabled={mastersLoading}>
+                {masterSelectOptions(masters, "department").map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
               </select>
             </Field>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="役職">
-                <select value={form.position} onChange={(e) => set("position", e.target.value)} className={inputCls}>
-                  {positions.map((p) => <option key={p}>{p}</option>)}
+                <select value={form.position} onChange={(e) => set("position", e.target.value)} className={inputCls} disabled={mastersLoading}>
+                  {masterSelectOptions(masters, "position").map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                 </select>
               </Field>
-              <Field label="ステージ">
-                <select value={form.grade} onChange={(e) => set("grade", e.target.value)} className={inputCls}>
-                  {grades.map((g) => <option key={g}>{g}</option>)}
+              <Field label="等級/グレード">
+                <select value={form.grade} onChange={(e) => set("grade", e.target.value)} className={inputCls} disabled={mastersLoading}>
+                  {masterSelectOptions(masters, "grade").map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </select>
+              </Field>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="職種">
+                <select value={form.jobType} onChange={(e) => set("jobType", e.target.value)} className={inputCls} disabled={mastersLoading}>
+                  {masterSelectOptions(masters, "jobType").map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                 </select>
               </Field>
             </div>

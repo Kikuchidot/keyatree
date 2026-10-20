@@ -4,11 +4,8 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { employees, Employee } from "@/lib/mockData";
 
-const teams = ["", "クライアントマネジメントチーム", "リーシングチーム", "リーシングアシスタントチーム", "カスタマーサポートチーム", "カスタマーオペレーションチーム", "アカウントチーム", "マーケティングチーム"];
-const positions = ["代表取締役", "部長", "課長", "主任", "担当者"];
-const grades = ["-", "E1", "E2", "J1", "J2", "J3", "S1", "S2", "S3", "M1", "M2", "M3", "L1", "L2"];
-const jobTypes = ["営業", "管理", "物件管理", "経営", "経理", "マーケティング"];
-const employmentTypes = ["正社員", "契約社員", "パートタイム", "アルバイト"];
+import { fetchMasters, masterSelectOptions, type Masters } from "@/lib/mastersStore";
+
 const ranks = ["S", "A", "B", "C"];
 
 const inputCls = "w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 bg-white text-gray-800";
@@ -26,6 +23,8 @@ export default function StaffManagePage() {
   const [form, setForm] = useState<EditForm | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [masters, setMasters] = useState<Masters>({});
+  const [mastersLoading, setMastersLoading] = useState(true);
 
   const loadStaff = () => {
     fetch("/api/staff")
@@ -45,8 +44,17 @@ export default function StaffManagePage() {
       .catch(() => {});
   };
 
+  const loadMasters = () => {
+    setMastersLoading(true);
+    fetchMasters()
+      .then((data) => setMasters(data))
+      .catch(() => setError("マスター選択肢の取得に失敗しました"))
+      .finally(() => setMastersLoading(false));
+  };
+
   useEffect(() => {
     loadStaff();
+    loadMasters();
   }, []);
 
   const teamOptions = useMemo(
@@ -71,10 +79,10 @@ export default function StaffManagePage() {
     setError("");
     setForm({
       team: emp.team ?? "",
-      position: emp.position ?? "担当者",
-      grade: emp.grade ?? "-",
-      jobType: emp.jobType ?? "営業",
-      employmentType: emp.employmentType ?? "正社員",
+      position: emp.position && emp.position !== "-" ? emp.position : "",
+      grade: emp.grade && emp.grade !== "-" ? emp.grade : "",
+      jobType: emp.jobType ?? "",
+      employmentType: emp.employmentType ?? "",
       evaluationRank: emp.evaluationRank ?? "B",
     });
   };
@@ -190,36 +198,36 @@ export default function StaffManagePage() {
             </div>
             <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
               <div>
-                <label className="text-xs font-semibold text-gray-600 mb-1 block">所属チーム</label>
-                <select value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })} className={inputCls}>
-                  {teams.map((t) => <option key={t} value={t}>{t || "未設定"}</option>)}
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">所属先</label>
+                <select value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value })} className={inputCls} disabled={mastersLoading}>
+                  {masterSelectOptions(masters, "department").map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-semibold text-gray-600 mb-1 block">役職</label>
-                  <select value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className={inputCls}>
-                    {positions.map((p) => <option key={p}>{p}</option>)}
+                  <select value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className={inputCls} disabled={mastersLoading}>
+                    {masterSelectOptions(masters, "position").map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-gray-600 mb-1 block">グレード</label>
-                  <select value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} className={inputCls}>
-                    {grades.map((g) => <option key={g}>{g}</option>)}
+                  <label className="text-xs font-semibold text-gray-600 mb-1 block">等級/グレード</label>
+                  <select value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} className={inputCls} disabled={mastersLoading}>
+                    {masterSelectOptions(masters, "grade").map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-semibold text-gray-600 mb-1 block">職種</label>
-                  <select value={form.jobType} onChange={(e) => setForm({ ...form, jobType: e.target.value })} className={inputCls}>
-                    {jobTypes.map((j) => <option key={j}>{j}</option>)}
+                  <select value={form.jobType} onChange={(e) => setForm({ ...form, jobType: e.target.value })} className={inputCls} disabled={mastersLoading}>
+                    {masterSelectOptions(masters, "jobType").map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-600 mb-1 block">雇用形態</label>
-                  <select value={form.employmentType} onChange={(e) => setForm({ ...form, employmentType: e.target.value })} className={inputCls}>
-                    {employmentTypes.map((t) => <option key={t}>{t}</option>)}
+                  <select value={form.employmentType} onChange={(e) => setForm({ ...form, employmentType: e.target.value })} className={inputCls} disabled={mastersLoading}>
+                    {masterSelectOptions(masters, "employmentType").map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
               </div>

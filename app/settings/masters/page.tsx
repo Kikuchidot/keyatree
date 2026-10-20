@@ -4,16 +4,15 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import BackButton from "@/components/BackButton";
 
-// ---- マスターデータ型 ----
-type MasterItem = { id: string; label: string; order: number };
-type Masters = Record<string, MasterItem[]>;
+import { fetchMasters, type Masters, type MasterItem } from "@/lib/mastersStore";
 
 const tabConfig = [
-  { key: "department",    label: "所属チーム",     desc: "スタッフが所属するチームの一覧" },
-  { key: "position",      label: "役職",     desc: "スタッフの役職区分" },
-  { key: "grade",         label: "ステージ", desc: "給与・評価に紐づくステージ区分" },
-  { key: "employmentType",label: "雇用形態", desc: "契約の種別区分" },
-  { key: "blank",         label: "ブランク", desc: "自由に使えるカテゴリー" },
+  { key: "department", label: "所属先", desc: "スタッフが所属する組織・チームの一覧" },
+  { key: "position", label: "役職", desc: "スタッフの役職区分" },
+  { key: "grade", label: "等級/グレード", desc: "給与・評価に紐づく等級・グレード区分" },
+  { key: "jobType", label: "職種", desc: "スタッフの職種区分" },
+  { key: "employmentType", label: "雇用形態", desc: "契約の種別区分" },
+  { key: "blank", label: "ブランク", desc: "自由に使えるカテゴリー" },
 ];
 
 // ---- 1行コンポーネント ----
@@ -112,11 +111,8 @@ export default function MastersPage() {
 
   // 初期ロード：サーバーから取得（全端末共通）
   useEffect(() => {
-    fetch("/api/masters")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d?.masters) setMasters(d.masters);
-      })
+    fetchMasters()
+      .then((data) => setMasters(data))
       .catch(() => showToast("読み込みに失敗しました"))
       .finally(() => setLoading(false));
   }, []);

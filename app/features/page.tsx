@@ -168,6 +168,7 @@ export default async function FeaturesPage() {
   const showMvgAdmin = await isMvgAdmin(session?.name);
   const showGoalAssignments = canApprove(session);
   const showAccountsAdmin = isGoalAdmin(session);
+  const showMastersAdmin = canApprove(session);
 
   const grouped = categoryOrder.map((category) => ({
     category,
@@ -360,6 +361,53 @@ export default async function FeaturesPage() {
                           </span>
                         </div>
                         <span className="text-xs font-bold text-violet-700 opacity-0 group-hover:opacity-100 transition-opacity">
+                          開く →
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              ) : null}
+
+              {category === "管理・運用" && showMastersAdmin ? (
+                <Link href="/settings/masters" className="block">
+                  <div className="group h-full bg-gradient-to-br from-amber-50 to-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden transition-all duration-200 hover:shadow-lg hover:-translate-y-1 hover:border-amber-300 cursor-pointer">
+                    <div className="p-5 h-full flex flex-col">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0 border border-white shadow-sm">
+                            <span className="text-sm font-black text-amber-700">
+                              設定
+                            </span>
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-black text-gray-800 leading-tight">
+                              マスター管理
+                            </h3>
+                            <span className="text-[10px] font-mono font-bold text-gray-400">
+                              MSTR
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-1 rounded-full border bg-amber-100 text-amber-700 border-amber-200">
+                          管理者・人事管理者向け
+                        </span>
+                      </div>
+
+                      <p className="mt-4 text-xs text-gray-500 leading-relaxed flex-1">
+                        スタッフ登録で使用する所属先・役職・等級/グレード・職種・雇用形態の選択肢を管理します。
+                      </p>
+
+                      <div className="mt-4 pt-4 border-t border-amber-100 flex items-center justify-between">
+                        <div className="flex gap-1.5 flex-wrap">
+                          <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-1 rounded-md font-medium">
+                            マスター
+                          </span>
+                          <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded-md font-medium">
+                            選択肢
+                          </span>
+                        </div>
+                        <span className="text-xs font-bold text-amber-700 opacity-0 group-hover:opacity-100 transition-opacity">
                           開く →
                         </span>
                       </div>
