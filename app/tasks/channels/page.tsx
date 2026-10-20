@@ -190,69 +190,48 @@ export default function ChannelsWorkspacePage() {
   const [showNewDm, setShowNewDm] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"channels" | "dm">("channels");
 
-  // サイドバーからのリネーム
-  const [renameChannelId, setRenameChannelId] = useState<string | null>(null);
-  const [renameTalkId, setRenameTalkId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const [renameSaving, setRenameSaving] = useState(false);
+  // リネームモーダル
+  const [renameTarget, setRenameTarget] = useState<{
+    type: "channel" | "talk";
+    channelId: string;
+    talkId?: string;
+    currentName: string;
+  } | null>(null);
 
   const isAdmin = isAdminSession(session);
   const meId = sessionMemberId(session);
 
   const startRenameChannel = (c: Channel) => {
-    setRenameTalkId(null);
-    setRenameChannelId(c.id);
-    setRenameValue(c.name);
+    setRenameTarget({ type: "channel", channelId: c.id, currentName: c.name });
   };
   const startRenameTalk = (t: Talk) => {
-    setRenameChannelId(null);
-    setRenameTalkId(t.id);
-    setRenameValue(t.name);
+    setRenameTarget({ type: "talk", channelId: t.channelId, talkId: t.id, currentName: t.name });
   };
-  const cancelRename = () => {
-    setRenameChannelId(null);
-    setRenameTalkId(null);
-    setRenameValue("");
-  };
-  const submitRenameChannel = async (c: Channel) => {
-    const name = renameValue.trim();
-    if (!name || name === c.name) return cancelRename();
-    setRenameSaving(true);
-    try {
-      const res = await fetch(`/api/task-channels/${c.id}`, {
+  const handleRenameSubmit = async (newName: string) => {
+    if (!renameTarget) return;
+    if (renameTarget.type === "channel") {
+      const res = await fetch(`/api/task-channels/${renameTarget.channelId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name: newName }),
       });
       const d = await res.json();
       if (res.ok) {
-        setChannels((prev) => prev.map((x) => (x.id === c.id ? d.channel : x)));
-        cancelRename();
-      } else alert(d?.error ?? "名称変更に失敗しました");
-    } finally {
-      setRenameSaving(false);
-    }
-  };
-  const submitRenameTalk = async (channelId: string, t: Talk) => {
-    const name = renameValue.trim();
-    if (!name || name === t.name) return cancelRename();
-    setRenameSaving(true);
-    try {
-      const res = await fetch(`/api/task-channels/${channelId}/talks/${t.id}`, {
+        setChannels((prev) => prev.map((x) => (x.id === renameTarget.channelId ? d.channel : x)));
+      } else throw new Error(d?.error ?? "名称変更に失敗しました");
+    } else {
+      const res = await fetch(`/api/task-channels/${renameTarget.channelId}/talks/${renameTarget.talkId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name: newName }),
       });
       const d = await res.json();
       if (res.ok) {
         setTalksByChannel((prev) => ({
           ...prev,
-          [channelId]: (prev[channelId] ?? []).map((x) => (x.id === t.id ? d.talk : x)),
+          [renameTarget.channelId]: (prev[renameTarget.channelId] ?? []).map((x) => (x.id === renameTarget.talkId ? d.talk : x)),
         }));
-        cancelRename();
-      } else alert(d?.error ?? "名称変更に失敗しました");
-    } finally {
-      setRenameSaving(false);
+      } else throw new Error(d?.error ?? "名称変更に失敗しました");
     }
   };
 
@@ -590,36 +569,7 @@ export default function ChannelsWorkspacePage() {
                       <span className={`w-6 h-6 rounded ${colorFor(c.id)} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
                         {c.name.charAt(0)}
                       </span>
-                      {renameChannelId === c.id ? (
-                        <div className="flex-1 min-w-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            autoFocus
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") submitRenameChannel(c);
-                              if (e.key === "Escape") cancelRename();
-                            }}
-                            disabled={renameSaving}
-                            className="flex-1 min-w-0 bg-white border border-emerald-500 rounded px-1.5 py-0.5 text-sm text-gray-800 focus:outline-none"
-                          />
-                          <button
-                            onClick={() => submitRenameChannel(c)}
-                            disabled={renameSaving}
-                            className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 flex-shrink-0"
-                          >
-                            {renameSaving ? "..." : "保存"}
-                          </button>
-                          <button
-                            onClick={cancelRename}
-                            disabled={renameSaving}
-                            className="text-[11px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 hover:bg-gray-300 disabled:opacity-50 flex-shrink-0"
-                          >
-                            取消
-                          </button>
-                        </div>
-                      ) : (
-                        <button
+                      <button
                           onClick={() => selectChannel(c.id)}
                           onDoubleClick={(e) => {
                             if (!isAdmin) return;
@@ -630,9 +580,8 @@ export default function ChannelsWorkspacePage() {
                         >
                           <span className={`text-sm truncate block ${active ? "text-gray-800 font-semibold" : "text-gray-700"}`}>{c.name}</span>
                         </button>
-                      )}
                       <span className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 transition">
-                        {isAdmin && renameChannelId !== c.id && (
+                        {isAdmin && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -698,7 +647,7 @@ export default function ChannelsWorkspacePage() {
                                     setDragTalk(null);
                                     setDragOverTalk(null);
                                   }}
-                                  onClick={() => { if (renameTalkId !== t.id) selectTalk(c.id, t.id); }}
+                                  onClick={() => selectTalk(c.id, t.id)}
                                   className={`flex items-center gap-1.5 rounded-md px-2 py-1 cursor-pointer transition group/talk ${
                                     tActive ? "bg-emerald-600/20 text-emerald-700" : "text-gray-500 hover:bg-gray-100 hover:text-gray-700"
                                   } ${dragOverTalk === t.id && dragTalk?.talkId !== t.id ? "ring-1 ring-emerald-500" : ""} ${
@@ -706,36 +655,7 @@ export default function ChannelsWorkspacePage() {
                                   }`}
                                 >
                                   <span className="text-gray-500 text-xs flex-shrink-0">#</span>
-                                  {renameTalkId === t.id ? (
-                                    <div className="flex-1 min-w-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                                      <input
-                                        autoFocus
-                                        value={renameValue}
-                                        onChange={(e) => setRenameValue(e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Enter") submitRenameTalk(c.id, t);
-                                          if (e.key === "Escape") cancelRename();
-                                        }}
-                                        disabled={renameSaving}
-                                        className="flex-1 min-w-0 bg-white border border-emerald-500 rounded px-1.5 py-0.5 text-[13px] text-gray-800 focus:outline-none"
-                                      />
-                                      <button
-                                        onClick={() => submitRenameTalk(c.id, t)}
-                                        disabled={renameSaving}
-                                        className="text-[10px] px-1 py-0.5 rounded bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 flex-shrink-0"
-                                      >
-                                        {renameSaving ? "..." : "保存"}
-                                      </button>
-                                      <button
-                                        onClick={cancelRename}
-                                        disabled={renameSaving}
-                                        className="text-[10px] px-1 py-0.5 rounded bg-gray-200 text-gray-600 hover:bg-gray-300 disabled:opacity-50 flex-shrink-0"
-                                      >
-                                        取消
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <span
+                                  <span
                                       className="text-[13px] truncate flex-1"
                                       onDoubleClick={(e) => {
                                         if (!canRenameTalk) return;
@@ -745,8 +665,7 @@ export default function ChannelsWorkspacePage() {
                                     >
                                       {t.name}
                                     </span>
-                                  )}
-                                  {canRenameTalk && renameTalkId !== t.id && (
+                                  {canRenameTalk && (
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -881,6 +800,15 @@ export default function ChannelsWorkspacePage() {
           }}
         />
       )}
+
+      {renameTarget && (
+        <RenameModal
+          label={renameTarget.type === "channel" ? "チャンネル名" : "トークルーム名"}
+          currentName={renameTarget.currentName}
+          onClose={() => setRenameTarget(null)}
+          onSubmit={handleRenameSubmit}
+        />
+      )}
     </div>
   );
 }
@@ -894,6 +822,93 @@ function TalkCreateInline({ channel, canCreate, onClick }: { channel: Channel; c
     >
       <span className="text-sm">+</span> トークルームを追加
     </button>
+  );
+}
+
+function RenameModal({
+  label,
+  currentName,
+  onClose,
+  onSubmit,
+}: {
+  label: string;
+  currentName: string;
+  onClose: () => void;
+  onSubmit: (name: string) => Promise<void>;
+}) {
+  const [value, setValue] = useState(currentName);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // auto-focus and select all on open
+    setTimeout(() => inputRef.current?.select(), 0);
+  }, []);
+
+  const submit = async () => {
+    const name = value.trim();
+    if (!name) { setError("名前を入力してください"); return; }
+    if (name === currentName) { onClose(); return; }
+    setSaving(true);
+    setError("");
+    try {
+      await onSubmit(name);
+      onClose();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "名称変更に失敗しました");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="bg-gradient-to-r from-emerald-500 to-teal-500 px-5 py-4 flex items-center justify-between">
+          <h2 className="text-white font-bold text-base">{label}を編集</h2>
+          <button onClick={onClose} className="text-white/70 hover:text-white text-lg leading-none">
+            ×
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-gray-600 mb-1">{label}</label>
+            <input
+              ref={inputRef}
+              autoFocus
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) submit();
+                if (e.key === "Escape") onClose();
+              }}
+              disabled={saving}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+            />
+          </div>
+          {error && <p className="text-xs text-rose-600 font-medium">{error}</p>}
+        </div>
+        <div className="px-5 pb-5 flex gap-2 justify-end">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="px-4 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition disabled:opacity-50"
+          >
+            キャンセル
+          </button>
+          <button
+            onClick={submit}
+            disabled={saving}
+            className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold transition disabled:opacity-60"
+          >
+            {saving ? "保存中..." : "保存"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
