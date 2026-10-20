@@ -24,7 +24,7 @@ function renderMentionRuns(text: string, members: Member[], meId: string, keyPre
   });
 }
 
-// インライン装飾（**太字** / ==マーカー==）とメンションを解析
+// インライン装飾（***太字斜体*** / **太字** / *斜体* / ==マーカー== / `コード`）とメンションを解析
 function renderInline(text: string, members: Member[], meId: string, keyPrefix: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let buf = "";
@@ -37,6 +37,35 @@ function renderInline(text: string, members: Member[], meId: string, keyPrefix: 
     }
   };
   while (i < text.length) {
+    // インラインコード: `code`
+    if (text[i] === "`") {
+      const end = text.indexOf("`", i + 1);
+      if (end !== -1) {
+        flush();
+        nodes.push(
+          <code key={`${keyPrefix}-c${k++}`} className="bg-zinc-700/60 text-pink-300 rounded px-1 py-0.5 text-[0.85em] font-mono">
+            {text.slice(i + 1, end)}
+          </code>
+        );
+        i = end + 1;
+        continue;
+      }
+    }
+    // 太字+斜体: ***text***
+    if (text.startsWith("***", i)) {
+      const end = text.indexOf("***", i + 3);
+      if (end !== -1) {
+        flush();
+        nodes.push(
+          <strong key={`${keyPrefix}-bi${k++}`} className="font-bold italic">
+            {renderMentionRuns(text.slice(i + 3, end), members, meId, `${keyPrefix}-bii${k}`)}
+          </strong>
+        );
+        i = end + 3;
+        continue;
+      }
+    }
+    // 太字: **text**
     if (text.startsWith("**", i)) {
       const end = text.indexOf("**", i + 2);
       if (end !== -1) {
@@ -50,6 +79,21 @@ function renderInline(text: string, members: Member[], meId: string, keyPrefix: 
         continue;
       }
     }
+    // 斜体: *text*（**ではない単独の*）
+    if (text[i] === "*" && !text.startsWith("**", i)) {
+      const end = text.indexOf("*", i + 1);
+      if (end !== -1 && !text.startsWith("**", end)) {
+        flush();
+        nodes.push(
+          <em key={`${keyPrefix}-i${k++}`} className="italic">
+            {renderMentionRuns(text.slice(i + 1, end), members, meId, `${keyPrefix}-ii${k}`)}
+          </em>
+        );
+        i = end + 1;
+        continue;
+      }
+    }
+    // マーカー: ==text==
     if (text.startsWith("==", i)) {
       const end = text.indexOf("==", i + 2);
       if (end !== -1) {
@@ -75,14 +119,15 @@ const OL = /^\d+\.\s+/;
 const UL = /^[-*]\s+/;
 const H1 = /^#\s+/;
 const H2 = /^##\s+/;
+const H3 = /^###\s+/;
 
 function isBlockStart(t: string) {
-  return HR.test(t) || OL.test(t) || UL.test(t) || H1.test(t) || H2.test(t);
+  return HR.test(t) || OL.test(t) || UL.test(t) || H1.test(t) || H2.test(t) || H3.test(t);
 }
 
 /**
  * トークメッセージ本文を Markdown-lite として整形表示する。
- * 対応: 見出し(文字サイズ) #, ##／**太字**／==マーカー==／番号リスト 1.／箇条書き - ／水平線 ---／メンション
+ * 対応: 見出し(文字サイズ) #, ##, ###／***太字斜体***／**太字**／*斜体*／==マーカー==／`コード`／番号リスト 1.／箇条書き - ／水平線 ---／メンション
  * 記法に一致しない箇所はプレーンテキスト（改行維持）として表示する。
  */
 export function renderRichMessage(text: string, members: Member[], meId: string): ReactNode {
@@ -96,11 +141,21 @@ export function renderRichMessage(text: string, members: Member[], meId: string)
     const t = raw.trim();
 
     if (HR.test(t)) {
-      blocks.push(<hr key={`k${key++}`} className="my-2 border-zinc-600" />);
+      blocks.push(<hr key={`k${key++}`} className="my-2 border-t border-zinc-600 w-full" />);
       i++;
       continue;
     }
 
+    // ### must be checked before ## and #
+    if (H3.test(t)) {
+      blocks.push(
+        <p key={`k${key++}`} className="text-sm font-bold text-white my-0.5">
+          {renderInline(t.replace(H3, ""), members, meId, `h3-${key}`)}
+        </p>
+      );
+      i++;
+      continue;
+    }
     if (H2.test(t)) {
       blocks.push(
         <p key={`k${key++}`} className="text-base font-bold text-white my-0.5">
@@ -143,7 +198,7 @@ export function renderRichMessage(text: string, members: Member[], meId: string)
         i++;
       }
       blocks.push(
-        <ul key={`k${key++}`} className="list-disc ml-5 my-1 space-y-0.5">
+        <ul key={`k${key++}`} className="ml-4 my-1 space-y-0.5" style={{ listStyleType: "'・'" }}>
           {items.map((it, j) => (
             <li key={j}>{renderInline(it, members, meId, `ul${key}-${j}`)}</li>
           ))}
