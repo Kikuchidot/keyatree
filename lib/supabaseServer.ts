@@ -20,5 +20,9 @@ export function getSupabaseAdmin() {
       persistSession: false,
       autoRefreshToken: false,
     },
+    global: {
+      fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+        fetch(input, { ...init, cache: "no-store" }),
+    },
   });
 }

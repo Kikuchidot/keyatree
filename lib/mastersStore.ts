@@ -4,7 +4,7 @@ export type Masters = Record<string, MasterItem[]>;
 
 /** /api/masters から最新のマスター定義を取得（キャッシュを回避） */
 export async function fetchMasters(): Promise<Masters> {
-  const res = await fetch("/api/masters", { cache: "no-store" });
+  const res = await fetch(`/api/masters?_t=${Date.now()}`, { cache: "no-store" });
   if (!res.ok) throw new Error("マスター取得に失敗しました");
   const data = (await res.json()) as { masters?: Masters };
   return data.masters ?? {};

@@ -105,9 +105,10 @@ export async function saveMasters(masters: Masters): Promise<void> {
   }
   const supabase = getSupabaseAdmin();
   await ensureBucket(supabase);
-  const { error } = await supabase.storage.from(BUCKET).upload(MASTERS_PATH, JSON.stringify(masters), {
+  const blob = new Blob([JSON.stringify(masters)], { type: "application/json" });
+  const { error } = await supabase.storage.from(BUCKET).upload(MASTERS_PATH, blob, {
     contentType: "application/json",
-    cacheControl: "0",
+    cacheControl: "no-cache",
     upsert: true,
   });
   if (error) throw new Error(error.message);
