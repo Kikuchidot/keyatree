@@ -222,13 +222,13 @@ export async function seedChannels(): Promise<void> {
 export async function listChannels(): Promise<Channel[]> {
   if (!isSupabaseEnabled()) {
     return Array.from(memory().channels.values())
-      .filter((c) => !c.archived)
+      .filter((c) => !c.archived && (c as Channel & { type?: string }).type !== "dm")
       .sort((a, b) => a.name.localeCompare(b.name, "ja"));
   }
   const supabase = getSupabaseAdmin();
   await ensureBucket(supabase);
   const all = await listJson<Channel>(supabase, CHANNEL_PREFIX);
-  return all.filter((c) => !c.archived).sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  return all.filter((c) => !c.archived && (c as Channel & { type?: string }).type !== "dm").sort((a, b) => a.name.localeCompare(b.name, "ja"));
 }
 
 export async function getChannel(id: string): Promise<Channel | null> {
@@ -507,4 +507,108 @@ export function isChannelMember(channel: Channel | null, session: { id?: string;
   if (!channel || !session) return false;
   const ids = [session.employeeId, session.id].filter(Boolean) as string[];
   return channel.members.some((m) => ids.includes(m.id));
+}
+
+// ---- DM (ダイレクトチャット) ----
+// DM は type="dm" のチャンネルとして実装。各DMチャンネルに1つのトークが自動作成される。
+
+function dmKey(userId1: string, userId2: string): string {
+  return [userId1, userId2].sort().join(":");
+}
+
+export async function listDmChannels(): Promise<Channel[]> {
+  if (!isSupabaseEnabled()) {
+    return Array.from(memory().channels.values())
+      .filter((c) => (c as Channel & { type?: string }).type === "dm" && !c.archived)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  const supabase = getSupabaseAdmin();
+  await ensureBucket(supabase);
+  const all = await listJson<Channel>(supabase, CHANNEL_PREFIX);
+  return all
+    .filter((c) => (c as Channel & { type?: string }).type === "dm" && !c.archived)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export async function findOrCreateDm(input: {
+  user1: { id: string; name: string };
+  user2: { id: string; name: string };
+}): Promise<{ channel: Channel; talk: Talk }> {
+  const key = dmKey(input.user1.id, input.user2.id);
+  // 既存DMを探す
+  if (!isSupabaseEnabled()) {
+    const m = memory();
+    for (const c of m.channels.values()) {
+      if ((c as Channel & { type?: string; dmKey?: string }).type === "dm" && (c as Channel & { dmKey?: string }).dmKey === key && !c.archived) {
+        // トークを探す
+        for (const t of m.talks.values()) {
+          if (t.channelId === c.id && !t.archived) {
+            return { channel: c, talk: t };
+          }
+        }
+      }
+    }
+  } else {
+    const supabase = getSupabaseAdmin();
+    await ensureBucket(supabase);
+    const allChannels = await listJson<Channel & { type?: string; dmKey?: string }>(supabase, CHANNEL_PREFIX);
+    const existing = allChannels.find((c) => c.type === "dm" && c.dmKey === key && !c.archived);
+    if (existing) {
+      const allTalks = await listJson<Talk>(supabase, TALK_PREFIX);
+      const talk = allTalks.find((t) => t.channelId === existing.id && !t.archived);
+      if (talk) return { channel: existing, talk };
+    }
+  }
+
+  // 新規作成
+  const now = new Date().toISOString();
+  const channel: Channel & { type: string; dmKey: string } = {
+    id: newId(),
+    name: `DM: ${input.user1.name} & ${input.user2.name}`,
+    members: [
+      { id: input.user1.id, name: input.user1.name, role: "admin", joinedAt: now },
+      { id: input.user2.id, name: input.user2.name, role: "admin", joinedAt: now },
+    ],
+    createdBy: input.user1.id,
+    createdAt: now,
+    updatedAt: now,
+    type: "dm",
+    dmKey: key,
+  };
+  const talk: Talk = {
+    id: newId(),
+    channelId: channel.id,
+    name: "ダイレクトチャット",
+    members: [
+      { id: input.user1.id, name: input.user1.name, joinedAt: now },
+      { id: input.user2.id, name: input.user2.name, joinedAt: now },
+    ],
+    createdBy: input.user1.id,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  if (!isSupabaseEnabled()) {
+    memory().channels.set(channel.id, channel);
+    memory().talks.set(talk.id, talk);
+  } else {
+    const supabase = getSupabaseAdmin();
+    await ensureBucket(supabase);
+    await putJson(supabase, channelPath(channel.id), channel);
+    await putJson(supabase, talkPath(talk.id), talk);
+  }
+  return { channel, talk };
+}
+
+export async function getDmTalk(channelId: string): Promise<Talk | null> {
+  if (!isSupabaseEnabled()) {
+    for (const t of memory().talks.values()) {
+      if (t.channelId === channelId && !t.archived) return t;
+    }
+    return null;
+  }
+  const supabase = getSupabaseAdmin();
+  await ensureBucket(supabase);
+  const allTalks = await listJson<Talk>(supabase, TALK_PREFIX);
+  return allTalks.find((t) => t.channelId === channelId && !t.archived) ?? null;
 }

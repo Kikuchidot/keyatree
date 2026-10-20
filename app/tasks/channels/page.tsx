@@ -48,7 +48,19 @@ type TalkMessage = {
   kind?: "message" | "system";
 };
 
-type Selection = { type: "channel"; channelId: string } | { type: "talk"; channelId: string; talkId: string } | null;
+type DmChannel = Channel & {
+  talkId?: string;
+  peer: { id: string; name: string };
+  lastMessage?: string;
+  lastMessageAt?: string;
+  messageCount: number;
+};
+
+type Selection =
+  | { type: "channel"; channelId: string }
+  | { type: "talk"; channelId: string; talkId: string }
+  | { type: "dm"; dmChannelId: string; talkId: string; peer: { id: string; name: string } }
+  | null;
 
 const ICON_COLORS = [
   "bg-rose-500", "bg-orange-500", "bg-amber-500", "bg-emerald-500", "bg-teal-500",
@@ -172,6 +184,12 @@ export default function ChannelsWorkspacePage() {
   const [dragTalk, setDragTalk] = useState<{ channelId: string; talkId: string } | null>(null);
   const [dragOverTalk, setDragOverTalk] = useState<string | null>(null);
 
+  // ダイレクトチャット
+  const [dmChannels, setDmChannels] = useState<DmChannel[]>([]);
+  const [dmLoading, setDmLoading] = useState(false);
+  const [showNewDm, setShowNewDm] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<"channels" | "dm">("channels");
+
   // サイドバーからのリネーム
   const [renameChannelId, setRenameChannelId] = useState<string | null>(null);
   const [renameTalkId, setRenameTalkId] = useState<string | null>(null);
@@ -258,7 +276,7 @@ export default function ChannelsWorkspacePage() {
         next.delete(c.id);
         return next;
       });
-      if (selection?.channelId === c.id) setSelection(null);
+      if (selection && "channelId" in selection && selection.channelId === c.id) setSelection(null);
     } else {
       const d = await res.json().catch(() => null);
       alert(d?.error ?? "削除に失敗しました");
@@ -289,12 +307,22 @@ export default function ChannelsWorkspacePage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const loadDms = useCallback(() => {
+    setDmLoading(true);
+    fetch("/api/dm-channels")
+      .then((r) => r.json())
+      .then((d) => setDmChannels(d?.dmChannels ?? []))
+      .catch(() => setDmChannels([]))
+      .finally(() => setDmLoading(false));
+  }, []);
+
   useEffect(() => {
     setSession(getClientSession());
     setChannelOrder(getOrder("channels"));
     setHiddenChannels(getHiddenIds("channels"));
     load();
-  }, [load]);
+    loadDms();
+  }, [load, loadDms]);
 
   const loadChannel = useCallback(async (id: string) => {
     try {
@@ -328,6 +356,11 @@ export default function ChannelsWorkspacePage() {
   };
   const selectTalk = (channelId: string, talkId: string) => {
     setSelection({ type: "talk", channelId, talkId });
+  };
+  const selectDm = (dm: DmChannel) => {
+    if (!dm.talkId) return;
+    setSelection({ type: "dm", dmChannelId: dm.id, talkId: dm.talkId, peer: dm.peer });
+    setSidebarTab("dm");
   };
 
   // ---- 並べ替え・表示制御 ----
@@ -374,7 +407,7 @@ export default function ChannelsWorkspacePage() {
 
   const toggleHideChannel = (id: string) => setHiddenChannels(toggleHiddenId("channels", id));
 
-  const selectedChannel = selection ? channels.find((c) => c.id === selection.channelId) ?? null : null;
+  const selectedChannel = selection && "channelId" in selection ? channels.find((c) => c.id === selection.channelId) ?? null : null;
   const selectedTalk =
     selection?.type === "talk"
       ? (talksByChannel[selection.channelId] ?? []).find((t) => t.id === selection.talkId) ?? null
@@ -419,10 +452,25 @@ export default function ChannelsWorkspacePage() {
             />
           </div>
 
-          {/* フィルターチップ */}
-          <div className="px-3 pb-2 flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-600 text-white">チャネル</span>
-            {hiddenCount > 0 && (
+          {/* タブ切替: チャネル / ダイレクト */}
+          <div className="px-3 pb-2 flex items-center gap-1.5">
+            <button
+              onClick={() => setSidebarTab("channels")}
+              className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition ${
+                sidebarTab === "channels" ? "bg-emerald-600 text-white" : "border border-gray-300 text-gray-600 hover:bg-gray-100"
+              }`}
+            >
+              チャネル
+            </button>
+            <button
+              onClick={() => { setSidebarTab("dm"); if (dmChannels.length === 0 && !dmLoading) loadDms(); }}
+              className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition ${
+                sidebarTab === "dm" ? "bg-indigo-600 text-white" : "border border-gray-300 text-gray-600 hover:bg-gray-100"
+              }`}
+            >
+              ダイレクト
+            </button>
+            {sidebarTab === "channels" && hiddenCount > 0 && (
               <button
                 onClick={() => setShowHidden((v) => !v)}
                 className="text-[11px] font-bold px-2.5 py-1 rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 transition"
@@ -432,13 +480,71 @@ export default function ChannelsWorkspacePage() {
             )}
           </div>
 
+          {sidebarTab === "channels" && (
           <div className="px-3 pb-1 flex items-center gap-1.5 text-gray-500">
             <span className="text-[11px] font-bold uppercase tracking-wide">Teams とチャネル</span>
           </div>
+          )}
 
-          {/* チャンネルツリー */}
+          {sidebarTab === "dm" && (
+          <div className="px-3 pb-1 flex items-center justify-between text-gray-500">
+            <span className="text-[11px] font-bold uppercase tracking-wide">ダイレクトチャット</span>
+            <button
+              onClick={() => setShowNewDm(true)}
+              title="新規DM"
+              className="w-6 h-6 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-sm leading-none flex items-center justify-center transition"
+            >
+              +
+            </button>
+          </div>
+          )}
+
+          {/* チャンネルツリー / DMリスト */}
           <div className="flex-1 overflow-y-auto px-2 pb-4">
-            {loading ? (
+            {sidebarTab === "dm" ? (
+              /* ---- DM一覧 ---- */
+              dmLoading ? (
+                <p className="text-xs text-gray-500 py-6 text-center">読み込み中...</p>
+              ) : dmChannels.length === 0 ? (
+                <div className="text-center py-6">
+                  <p className="text-xs text-gray-500 mb-2">ダイレクトチャットはまだありません</p>
+                  <button
+                    onClick={() => setShowNewDm(true)}
+                    className="text-xs font-bold text-indigo-600 hover:text-indigo-500"
+                  >
+                    + 新しいDMを始める
+                  </button>
+                </div>
+              ) : (
+                dmChannels.map((dm) => {
+                  const active = selection?.type === "dm" && (selection as { dmChannelId: string }).dmChannelId === dm.id;
+                  return (
+                    <button
+                      key={dm.id}
+                      onClick={() => selectDm(dm)}
+                      className={`w-full flex items-center gap-2.5 rounded-lg px-2 py-2 cursor-pointer transition mb-0.5 ${
+                        active ? "bg-indigo-100" : "hover:bg-gray-100"
+                      }`}
+                    >
+                      <span className={`w-8 h-8 rounded-full ${colorFor(dm.peer.id)} flex items-center justify-center text-white text-sm font-bold flex-shrink-0`}>
+                        {dm.peer.name.charAt(0)}
+                      </span>
+                      <div className="flex-1 min-w-0 text-left">
+                        <p className={`text-sm truncate ${active ? "font-semibold text-gray-800" : "text-gray-700"}`}>{dm.peer.name}</p>
+                        {dm.lastMessage && (
+                          <p className="text-[11px] text-gray-500 truncate">{dm.lastMessage}</p>
+                        )}
+                      </div>
+                      {dm.lastMessageAt && (
+                        <span className="text-[10px] text-gray-400 flex-shrink-0">{fmt(dm.lastMessageAt).split(" ")[1]}</span>
+                      )}
+                    </button>
+                  );
+                })
+              )
+            ) : (
+              /* ---- チャンネルツリー ---- */
+              loading ? (
               <p className="text-xs text-gray-500 py-6 text-center">読み込み中...</p>
             ) : filteredChannels.length === 0 ? (
               <p className="text-xs text-gray-500 py-6 text-center">
@@ -449,7 +555,7 @@ export default function ChannelsWorkspacePage() {
                 const isOpen = expanded.has(c.id) || (!!q);
                 const talks = orderedTalks(c.id);
                 const isHidden = hiddenChannels.includes(c.id);
-                const active = selection?.channelId === c.id && selection.type === "channel";
+                const active = selection?.type === "channel" && selection.channelId === c.id;
                 return (
                   <div key={c.id} className={isHidden ? "opacity-50" : ""}>
                     <div
@@ -651,6 +757,7 @@ export default function ChannelsWorkspacePage() {
                   </div>
                 );
               })
+            )
             )}
           </div>
 
@@ -688,11 +795,34 @@ export default function ChannelsWorkspacePage() {
               onCreateTalk={() => setTalkModalChannel(selectedChannel)}
               onChannelUpdated={(c) => setChannels((prev) => prev.map((x) => (x.id === c.id ? c : x)))}
             />
+          ) : selection.type === "dm" ? (
+            <DmView
+              key={selection.dmChannelId}
+              dmChannelId={selection.dmChannelId}
+              peer={selection.peer}
+              meId={meId}
+              onMessageSent={() => loadDms()}
+            />
           ) : (
             <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">読み込み中...</div>
           )}
         </main>
       </div>
+
+      {showNewDm && (
+        <NewDmModal
+          meId={meId}
+          onClose={() => setShowNewDm(false)}
+          onCreated={(dm) => {
+            setShowNewDm(false);
+            setDmChannels((prev) => {
+              if (prev.some((d) => d.id === dm.id)) return prev;
+              return [dm, ...prev];
+            });
+            selectDm(dm);
+          }}
+        />
+      )}
 
       {showCreateChannel && (
         <CreateChannelModal
@@ -2272,6 +2402,348 @@ function CreateTalkModal({
           <button onClick={submit} disabled={saving} className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold transition disabled:opacity-60">
             {saving ? "作成中..." : "作成する"}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------ DM会話ビュー ------------ */
+function DmView({
+  dmChannelId,
+  peer,
+  meId,
+  onMessageSent,
+}: {
+  dmChannelId: string;
+  peer: { id: string; name: string };
+  meId: string;
+  onMessageSent: () => void;
+}) {
+  const [messages, setMessages] = useState<TalkMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [attachments, setAttachments] = useState<TalkAttachmentT[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  const loadMessages = useCallback(() => {
+    setLoading(true);
+    fetch(`/api/dm-channels/${dmChannelId}/messages`)
+      .then((r) => r.json())
+      .then((d) => setMessages(d?.messages ?? []))
+      .catch(() => setMessages([]))
+      .finally(() => setLoading(false));
+  }, [dmChannelId]);
+
+  useEffect(() => { loadMessages(); }, [loadMessages]);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const send = async () => {
+    const t = text.trim();
+    if ((!t && attachments.length === 0) || sending) return;
+    setSending(true);
+    try {
+      const mentions = extractMentions(t, [{ id: peer.id, name: peer.name }]);
+      const res = await fetch(`/api/dm-channels/${dmChannelId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: t, mentions, attachments }),
+      });
+      const d = await res.json();
+      if (res.ok && d.message) {
+        setMessages((prev) => [...prev, d.message]);
+        setText("");
+        setAttachments([]);
+        onMessageSent();
+      } else {
+        alert(d?.error ?? "送信に失敗しました");
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const toggleReaction = async (id: string, emoji: string) => {
+    const res = await fetch(`/api/dm-channels/${dmChannelId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reactionMessageId: id, emoji }),
+    });
+    const d = await res.json();
+    if (res.ok && d.messages) setMessages(d.messages);
+  };
+
+  const deleteMessage = async (id: string) => {
+    if (!confirm("このメッセージを削除しますか？")) return;
+    const res = await fetch(`/api/dm-channels/${dmChannelId}/messages?messageId=${id}`, { method: "DELETE" });
+    if (res.ok) setMessages((prev) => prev.filter((m) => m.id !== id));
+  };
+
+  const addFiles = async (files: File[]) => {
+    for (const f of files) {
+      try {
+        if (f.type.startsWith("image/")) {
+          const dataUrl = await resizeImageToDataUrl(f);
+          setAttachments((prev) => [...prev, { name: f.name, dataUrl, type: f.type, size: f.size }].slice(0, 6));
+        } else if (f.size <= 5 * 1024 * 1024) {
+          const dataUrl = await fileToDataUrl(f);
+          setAttachments((prev) => [...prev, { name: f.name, dataUrl, type: f.type, size: f.size }].slice(0, 6));
+        }
+      } catch { /* ignore */ }
+    }
+  };
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      {/* ヘッダー */}
+      <div className="flex-shrink-0 border-b border-gray-200 px-5 py-3 flex items-center gap-3">
+        <span className={`w-9 h-9 rounded-full ${colorFor(peer.id)} flex items-center justify-center text-white text-sm font-bold flex-shrink-0`}>
+          {peer.name.charAt(0)}
+        </span>
+        <div className="min-w-0">
+          <h1 className="text-base font-bold text-gray-800 truncate">{peer.name}</h1>
+          <p className="text-[11px] text-gray-500">ダイレクトチャット</p>
+        </div>
+      </div>
+
+      {/* メッセージ一覧 */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="max-w-2xl mx-auto space-y-3">
+          {loading ? (
+            <p className="text-sm text-gray-500 py-10 text-center">読み込み中...</p>
+          ) : messages.length === 0 ? (
+            <div className="text-center py-10">
+              <div className="w-14 h-14 rounded-full bg-gray-100 mx-auto flex items-center justify-center text-2xl mb-3">💬</div>
+              <p className="text-base font-bold text-gray-800">{peer.name} さんとの会話を始めましょう</p>
+              <p className="text-sm text-gray-500 mt-1">下のメッセージ欄から最初のメッセージを送信してください。</p>
+            </div>
+          ) : (
+            messages.map((m) => {
+              const mine = m.authorId === meId;
+              const reactions = m.reactions ?? [];
+              return (
+                <div key={m.id} className="flex gap-3 group">
+                  <span className={`w-8 h-8 rounded-full ${colorFor(m.authorId)} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+                    {m.authorName.charAt(0)}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13px] font-bold text-gray-800">{m.authorName}</span>
+                      <span className="text-[11px] text-gray-500">{fmt(m.createdAt)}</span>
+                    </div>
+                    {m.text && (
+                      <div className="mt-0.5 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-800 break-words whitespace-pre-wrap">
+                        {renderRichMessage(m.text, [{ id: peer.id, name: peer.name }], meId)}
+                      </div>
+                    )}
+                    {renderAttachments(m.attachments)}
+                    <div className="mt-1 flex items-center gap-2 flex-wrap">
+                      {reactions.map((r) => (
+                        <button
+                          key={r.emoji}
+                          onClick={() => toggleReaction(m.id, r.emoji)}
+                          className={`text-[12px] px-2 py-0.5 rounded-full border transition ${
+                            r.userIds.includes(meId)
+                              ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-700"
+                              : "bg-gray-100 border-gray-300 text-gray-600 hover:border-gray-400"
+                          }`}
+                        >
+                          {r.emoji} {r.userIds.length}
+                        </button>
+                      ))}
+                      <span className="opacity-0 group-hover:opacity-100 transition flex items-center gap-2">
+                        <button onClick={() => toggleReaction(m.id, "👍")} className="text-[12px] text-gray-500 hover:text-indigo-400" title="いいね">👍</button>
+                        {mine && <button onClick={() => deleteMessage(m.id)} className="text-[11px] text-gray-500 hover:text-rose-400">削除</button>}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* メッセージ入力 */}
+      <div className="flex-shrink-0 border-t border-gray-200 p-3">
+        <div className="max-w-2xl mx-auto">
+          {attachments.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {attachments.map((a, i) => (
+                <div key={i} className="relative">
+                  {isImageAttachment(a) ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={a.dataUrl} alt={a.name || "添付"} className="h-16 w-16 object-cover rounded-lg border border-gray-300" />
+                  ) : (
+                    <div className="flex items-center gap-2 h-16 w-36 rounded-lg border border-gray-300 bg-gray-100 px-2">
+                      <span className="text-lg flex-shrink-0">{fileIcon(a)}</span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-[11px] text-gray-800">{a.name || "ファイル"}</span>
+                        <span className="block text-[10px] text-gray-500">{formatBytes(a.size)}</span>
+                      </span>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white border border-gray-300 text-gray-600 text-xs hover:bg-rose-600 hover:text-white"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              if (files.length) addFiles(files);
+              e.target.value = "";
+            }}
+          />
+          <div className="flex items-end gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex-shrink-0 w-9 h-9 rounded-lg border border-gray-300 hover:border-indigo-500 flex items-center justify-center text-gray-500 hover:text-indigo-500 transition"
+              title="ファイル添付"
+            >
+              📎
+            </button>
+            <MentionTextarea
+              value={text}
+              onChange={setText}
+              members={[{ id: peer.id, name: peer.name }]}
+              onSubmit={send}
+              onImageFiles={(files) => addFiles(files.filter((f) => f.type.startsWith("image/")))}
+              rows={1}
+              placeholder={`${peer.name} にメッセージを送信...`}
+              className="flex-1 resize-none bg-gray-100 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 max-h-32"
+            />
+            <button
+              onClick={send}
+              disabled={sending || (!text.trim() && attachments.length === 0)}
+              className="flex-shrink-0 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold px-4 py-2 rounded-lg transition disabled:opacity-50"
+            >
+              {sending ? "..." : "送信"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------ 新規DMモーダル ------------ */
+function NewDmModal({
+  meId,
+  onClose,
+  onCreated,
+}: {
+  meId: string;
+  onClose: () => void;
+  onCreated: (dm: DmChannel) => void;
+}) {
+  const [staff, setStaff] = useState<{ id: string; name: string; department?: string }[]>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/staff")
+      .then((r) => r.json())
+      .then((d) => {
+        const list = (d?.staff ?? []) as { id: string; name: string; department?: string }[];
+        setStaff(list.filter((s) => s.id !== meId));
+      })
+      .catch(() => setStaff([]))
+      .finally(() => setLoading(false));
+  }, [meId]);
+
+  const filtered = search.trim()
+    ? staff.filter(
+        (s) =>
+          s.name.toLowerCase().includes(search.trim().toLowerCase()) ||
+          (s.department ?? "").toLowerCase().includes(search.trim().toLowerCase())
+      )
+    : staff;
+
+  const startDm = async (recipient: { id: string; name: string }) => {
+    setCreating(true);
+    try {
+      const res = await fetch("/api/dm-channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipientId: recipient.id, recipientName: recipient.name }),
+      });
+      const d = await res.json();
+      if (res.ok && d.channel) {
+        const dm: DmChannel = {
+          ...d.channel,
+          talkId: d.talkId,
+          peer: { id: recipient.id, name: recipient.name },
+          messageCount: 0,
+        };
+        onCreated(dm);
+      } else {
+        alert(d?.error ?? "DMの作成に失敗しました");
+        setCreating(false);
+      }
+    } catch {
+      alert("通信エラーが発生しました");
+      setCreating(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-gradient-to-r from-indigo-500 to-violet-500 px-5 py-4 flex items-center justify-between">
+          <h2 className="text-white font-bold text-base">新しいダイレクトチャット</h2>
+          <button onClick={onClose} className="text-white/70 hover:text-white text-lg leading-none">×</button>
+        </div>
+        <div className="p-4">
+          <input
+            autoFocus
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="名前で検索..."
+            className="w-full bg-gray-100 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 mb-3"
+          />
+          <div className="max-h-80 overflow-y-auto space-y-1">
+            {loading ? (
+              <p className="text-sm text-gray-500 py-6 text-center">読み込み中...</p>
+            ) : filtered.length === 0 ? (
+              <p className="text-sm text-gray-500 py-6 text-center">スタッフが見つかりません</p>
+            ) : (
+              filtered.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => startDm(s)}
+                  disabled={creating}
+                  className="w-full flex items-center gap-3 rounded-xl hover:bg-gray-50 px-3 py-2.5 text-left transition disabled:opacity-50"
+                >
+                  <span className={`w-9 h-9 rounded-full ${colorFor(s.id)} flex items-center justify-center text-white text-sm font-bold flex-shrink-0`}>
+                    {s.name.charAt(0)}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 truncate">{s.name}</p>
+                    {s.department && <p className="text-[11px] text-gray-500 truncate">{s.department}</p>}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </div>
