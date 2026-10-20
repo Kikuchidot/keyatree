@@ -187,14 +187,30 @@ function AttachmentViewer({
   };
 
   const handleCopyLink = async (a: TalkAttachmentT) => {
+    let urlToCopy = a.dataUrl;
+
+    // Storage URL の場合、短縮 URL を生成
+    if (a.dataUrl.startsWith("http")) {
+      try {
+        const res = await fetch("/api/share", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: a.dataUrl, name: a.name, type: a.type }),
+        });
+        if (res.ok) {
+          const d = await res.json();
+          if (d.shortUrl) urlToCopy = d.shortUrl;
+        }
+      } catch { /* 失敗時は元のURLをコピー */ }
+    }
+
     try {
-      await navigator.clipboard.writeText(a.dataUrl);
+      await navigator.clipboard.writeText(urlToCopy);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // fallback
       const ta = document.createElement("textarea");
-      ta.value = a.dataUrl;
+      ta.value = urlToCopy;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand("copy");
