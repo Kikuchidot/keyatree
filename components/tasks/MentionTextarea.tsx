@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, type KeyboardEvent, type ClipboardEvent } from "react";
+import { renderRichMessage } from "@/lib/messageFormat";
 
 type Member = { id: string; name: string };
 
@@ -21,6 +22,7 @@ export default function MentionTextarea({
   onEscape,
   onImageFiles,
   showToolbar = false,
+  meId = "",
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -33,6 +35,7 @@ export default function MentionTextarea({
   onEscape?: () => void;
   onImageFiles?: (files: File[]) => void;
   showToolbar?: boolean;
+  meId?: string;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [open, setOpen] = useState(false);
@@ -218,13 +221,13 @@ export default function MentionTextarea({
       {showToolbar && (
         <div className="mb-1.5 flex flex-wrap items-center gap-1">
           {[
-            { label: "大", title: "見出し（大）", fn: () => applyHeading("#"), cls: "text-base font-bold" },
-            { label: "中", title: "小見出し（中）", fn: () => applyHeading("##"), cls: "text-sm font-bold" },
-            { label: "B", title: "太字", fn: () => applyWrap("**"), cls: "font-bold" },
-            { label: "マーカー", title: "マーカー（ハイライト）", fn: () => applyWrap("=="), cls: "bg-yellow-300/80 text-zinc-900" },
-            { label: "1.", title: "番号リスト", fn: () => applyList(true), cls: "" },
-            { label: "•", title: "箇条書き", fn: () => applyList(false), cls: "" },
-            { label: "─", title: "水平線", fn: insertHr, cls: "" },
+            { label: "見出し大", title: "見出し（大）", fn: () => applyHeading("#"), cls: "border-zinc-700 bg-zinc-800 text-zinc-200 text-sm font-bold hover:border-emerald-500 hover:text-white" },
+            { label: "見出し中", title: "小見出し（中）", fn: () => applyHeading("##"), cls: "border-zinc-700 bg-zinc-800 text-zinc-200 text-xs font-bold hover:border-emerald-500 hover:text-white" },
+            { label: "B", title: "太字", fn: () => applyWrap("**"), cls: "border-zinc-700 bg-zinc-800 text-zinc-200 text-xs font-bold hover:border-emerald-500 hover:text-white" },
+            { label: "マーカー", title: "マーカー（ハイライト）", fn: () => applyWrap("=="), cls: "border-yellow-400 bg-yellow-300 text-zinc-900 text-xs hover:bg-yellow-200" },
+            { label: "1.", title: "番号リスト", fn: () => applyList(true), cls: "border-zinc-700 bg-zinc-800 text-zinc-200 text-xs hover:border-emerald-500 hover:text-white" },
+            { label: "•", title: "箇条書き", fn: () => applyList(false), cls: "border-zinc-700 bg-zinc-800 text-zinc-200 text-xs hover:border-emerald-500 hover:text-white" },
+            { label: "─", title: "水平線", fn: insertHr, cls: "border-zinc-700 bg-zinc-800 text-zinc-200 text-xs hover:border-emerald-500 hover:text-white" },
           ].map((b) => (
             <button
               key={b.title}
@@ -234,11 +237,16 @@ export default function MentionTextarea({
                 e.preventDefault();
                 b.fn();
               }}
-              className={`min-w-7 h-7 px-2 rounded-md border border-zinc-700 bg-zinc-800 text-zinc-200 text-xs hover:border-emerald-500 hover:text-white transition ${b.cls}`}
+              className={`min-w-7 h-7 px-2 rounded-md border transition ${b.cls}`}
             >
               {b.label}
             </button>
           ))}
+        </div>
+      )}
+      {showToolbar && value.trim() !== "" && (
+        <div className="mb-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 max-h-32 overflow-y-auto">
+          {renderRichMessage(value, members, meId)}
         </div>
       )}
       <textarea

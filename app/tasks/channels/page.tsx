@@ -1370,6 +1370,7 @@ function TalkView({
                                     onEscape={() => { setReplyTo(null); setReplyText(""); setReplyAttachments([]); }}
                                     onImageFiles={(files) => addImageFiles(files, "reply")}
                                     showToolbar
+                                    meId={meId}
                                     rows={2}
                                     placeholder="返信を入力（@でメンション・装飾ツールバー・画像はCtrl+Vで添付・⌘/Ctrl+Enterで送信）"
                                     className="w-full resize-none bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 max-h-40"
@@ -1460,6 +1461,7 @@ function TalkView({
                       onSubmit={sendMessage}
                       onImageFiles={(files) => addImageFiles(files, "main")}
                       showToolbar
+                      meId={meId}
                       rows={3}
                       placeholder="メッセージを入力（@でメンション・画像はCtrl+Vで添付・⌘/Ctrl+Enterで投稿）"
                       className="w-full resize-none bg-gray-100 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 max-h-48"
