@@ -5,7 +5,7 @@ import { getSupabaseAdmin, isSupabaseEnabled } from "@/lib/supabaseServer";
  * 短い公開 URL を返す。
  *
  * - バケットはパブリックアクセス有効（共有リンクが認証不要でアクセス可能）
- * - ファイルパス: chat-attachments/{channelId}/{messageId}/{uuid}_{filename}
+ * - ファイルパス: chat-attachments/{channelId}/{talkId}/{uuid}_{filename}
  * - Supabase 未設定時は何もせず元の data URL をそのまま返す（fallback）
  */
 
@@ -15,10 +15,15 @@ let attachBucketReady = false;
 
 async function ensureAttachmentBucket(supabase: ReturnType<typeof getSupabaseAdmin>) {
   if (attachBucketReady) return;
-  const { data } = await supabase.storage.getBucket(ATTACHMENT_BUCKET);
+  const { data, error: getErr } = await supabase.storage.getBucket(ATTACHMENT_BUCKET);
+  if (getErr) {
+    console.warn(`[attachmentStorage] getBucket error: ${getErr.message}`);
+  }
   if (!data) {
+    console.log(`[attachmentStorage] Creating bucket "${ATTACHMENT_BUCKET}" (public: true)`);
     const { error } = await supabase.storage.createBucket(ATTACHMENT_BUCKET, { public: true });
     if (error && !/exist/i.test(error.message)) {
+      console.error(`[attachmentStorage] createBucket failed: ${error.message}`);
       throw new Error(`chat-attachments バケット作成に失敗: ${error.message}`);
     }
   }
@@ -32,10 +37,18 @@ function newUUID(): string {
   );
 }
 
-/** data URL を Buffer に変換し、content-type を返す */
+/**
+ * data URL を Buffer に変換し、content-type を返す。
+ * data:image/png;base64,... や data:text/plain;charset=utf-8;base64,... など
+ * 追加パラメータ付きの形式にも対応。
+ */
 function parseDataUrl(dataUrl: string): { buffer: Buffer; contentType: string } | null {
-  const match = dataUrl.match(/^data:([^;]+);base64,([\s\S]+)$/);
-  if (!match) return null;
+  // data:MIME[;param=val]*;base64,DATA
+  const match = dataUrl.match(/^data:([^;,]+)[^,]*;base64,([\s\S]+)$/);
+  if (!match) {
+    console.warn(`[attachmentStorage] parseDataUrl failed for prefix: ${dataUrl.slice(0, 80)}`);
+    return null;
+  }
   return {
     contentType: match[1],
     buffer: Buffer.from(match[2], "base64"),
@@ -71,17 +84,22 @@ export type AttachmentOutput = {
 export async function uploadAttachments(
   attachments: AttachmentInput[],
   channelId: string,
-  messageId: string,
+  talkId: string,
 ): Promise<AttachmentOutput[]> {
-  if (!isSupabaseEnabled() || attachments.length === 0) {
+  if (attachments.length === 0) {
+    return attachments;
+  }
+
+  if (!isSupabaseEnabled()) {
+    console.warn("[attachmentStorage] Supabase not enabled, falling back to data URLs");
     return attachments;
   }
 
   const supabase = getSupabaseAdmin();
   try {
     await ensureAttachmentBucket(supabase);
-  } catch {
-    // バケット作成失敗 → fallback
+  } catch (err) {
+    console.error("[attachmentStorage] ensureAttachmentBucket failed:", err);
     return attachments;
   }
 
@@ -96,14 +114,13 @@ export async function uploadAttachments(
 
     const parsed = parseDataUrl(att.dataUrl);
     if (!parsed) {
-      // パース失敗 → そのまま保持
       results.push(att);
       continue;
     }
 
     const uuid = newUUID();
     const safeName = sanitizeFilename(att.name);
-    const storagePath = `${channelId}/${messageId}/${uuid}_${safeName}`;
+    const storagePath = `${channelId}/${talkId}/${uuid}_${safeName}`;
 
     try {
       const { error } = await supabase.storage
@@ -114,7 +131,7 @@ export async function uploadAttachments(
         });
 
       if (error) {
-        // アップロード失敗 → fallback
+        console.error(`[attachmentStorage] upload failed for ${safeName}: ${error.message}`);
         results.push(att);
         continue;
       }
@@ -124,14 +141,15 @@ export async function uploadAttachments(
         .from(ATTACHMENT_BUCKET)
         .getPublicUrl(storagePath);
 
+      console.log(`[attachmentStorage] uploaded: ${storagePath} → ${urlData.publicUrl.slice(0, 100)}`);
       results.push({
         name: att.name,
         dataUrl: urlData.publicUrl,
         type: att.type,
         size: att.size,
       });
-    } catch {
-      // エラー → fallback
+    } catch (err) {
+      console.error(`[attachmentStorage] unexpected error for ${safeName}:`, err);
       results.push(att);
     }
   }

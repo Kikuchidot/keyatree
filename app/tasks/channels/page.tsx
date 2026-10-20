@@ -104,6 +104,33 @@ const fileIcon = (a: TalkAttachmentT) => {
   return "📎";
 };
 
+// 添付ファイルをサーバー経由で Supabase Storage にアップロードし、dataUrl を公開 URL に差し替え
+async function uploadAttachmentsToStorage(atts: TalkAttachmentT[], channelId: string, talkId: string): Promise<TalkAttachmentT[]> {
+  const results: TalkAttachmentT[] = [];
+  for (const att of atts) {
+    if (!att.dataUrl.startsWith("data:")) {
+      results.push(att);
+      continue;
+    }
+    try {
+      const res = await fetch("/api/upload-attachment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attachment: att, channelId, talkId }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        if (d.url && !d.url.startsWith("data:")) {
+          results.push({ ...att, dataUrl: d.url });
+          continue;
+        }
+      }
+    } catch { /* fall through to data URL fallback */ }
+    results.push(att);
+  }
+  return results;
+}
+
 // モーダル付き添付ファイルビューア
 function AttachmentViewer({
   attachments,
@@ -1303,6 +1330,10 @@ function TalkView({
     if ((!text && attachments.length === 0 && !quoteDraft) || sending) return;
     setSending(true);
     try {
+      // 添付ファイルを事前に Supabase Storage にアップロード
+      const uploadedAttachments = attachments.length > 0
+        ? await uploadAttachmentsToStorage(attachments, channel.id, talk.id)
+        : [];
       const mentions = extractMentions(text, talk.members);
       const res = await fetch(`/api/task-channels/${channel.id}/talks/${talk.id}/messages`, {
         method: "POST",
@@ -1311,7 +1342,7 @@ function TalkView({
           text,
           subject: subject.trim() || undefined,
           mentions,
-          attachments,
+          attachments: uploadedAttachments,
           quote: quoteDraft
             ? { messageId: quoteDraft.messageId, talkId: quoteDraft.talkId, channelId: quoteDraft.channelId }
             : undefined,
@@ -1352,11 +1383,14 @@ function TalkView({
     if ((!text && replyAttachments.length === 0) || replySending) return;
     setReplySending(true);
     try {
+      const uploadedAttachments = replyAttachments.length > 0
+        ? await uploadAttachmentsToStorage(replyAttachments, channel.id, talk.id)
+        : [];
       const mentions = extractMentions(text, talk.members);
       const res = await fetch(`/api/task-channels/${channel.id}/talks/${talk.id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, parentId, mentions, attachments: replyAttachments }),
+        body: JSON.stringify({ text, parentId, mentions, attachments: uploadedAttachments }),
       });
       const d = await res.json();
       if (res.ok && d.message) {
@@ -2782,11 +2816,14 @@ function DmView({
     if ((!t && attachments.length === 0) || sending) return;
     setSending(true);
     try {
+      const uploadedAttachments = attachments.length > 0
+        ? await uploadAttachmentsToStorage(attachments, dmChannelId, dmChannelId)
+        : [];
       const mentions = extractMentions(t, dmMembers);
       const res = await fetch(`/api/dm-channels/${dmChannelId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: t, mentions, attachments }),
+        body: JSON.stringify({ text: t, mentions, attachments: uploadedAttachments }),
       });
       const d = await res.json();
       if (res.ok && d.message) {

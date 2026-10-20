@@ -85,15 +85,14 @@ export async function POST(request: Request, ctx: Ctx) {
 
     const text = (body.text ?? "").trim();
 
-    // 添付ファイル（data:... 形式・1ファイル最大50MB・最大6件）。画像以外も許可。
+    // 添付ファイル（data:... 形式 or Storage URL・1ファイル最大50MB・最大6件）。画像以外も許可。
     const MAX_ATTACH_CHARS = 70_000_000; // 約50MBのファイル（base64換算）
     const rawAttachments = Array.isArray(body.attachments)
       ? body.attachments
           .filter(
             (a) =>
               typeof a?.dataUrl === "string" &&
-              a.dataUrl.startsWith("data:") &&
-              a.dataUrl.length <= MAX_ATTACH_CHARS
+              (a.dataUrl.startsWith("data:") ? a.dataUrl.length <= MAX_ATTACH_CHARS : a.dataUrl.startsWith("http"))
           )
           .slice(0, 6)
           .map((a) => ({
@@ -104,7 +103,7 @@ export async function POST(request: Request, ctx: Ctx) {
           }))
       : [];
 
-    // Supabase Storage にアップロードし、短い公開 URL に差し替え
+    // まだ data URL のものがあれば Supabase Storage にアップロード
     const attachments = await uploadAttachments(rawAttachments, channelId, talkId);
 
     if (!text && attachments.length === 0 && !body.quote?.messageId) {

@@ -75,8 +75,7 @@ export async function POST(request: Request, ctx: Ctx) {
           .filter(
             (a) =>
               typeof a?.dataUrl === "string" &&
-              a.dataUrl.startsWith("data:") &&
-              a.dataUrl.length <= MAX_ATTACH_CHARS
+              (a.dataUrl.startsWith("data:") ? a.dataUrl.length <= MAX_ATTACH_CHARS : a.dataUrl.startsWith("http"))
           )
           .slice(0, 6)
           .map((a) => ({
@@ -87,7 +86,7 @@ export async function POST(request: Request, ctx: Ctx) {
           }))
       : [];
 
-    // Supabase Storage にアップロードし、短い公開 URL に差し替え
+    // まだ data URL のものがあれば Supabase Storage にアップロード
     const attachments = await uploadAttachments(rawAttachments, channel.id, talk.id);
 
     if (!text && attachments.length === 0) {
