@@ -82,6 +82,8 @@ export type Employee = {
   monthlyGoal: MonthlyGoal;
 };
 
+import { normalizeName } from "./utils";
+
 // API/ストレージから取得した不完全なスタッフデータを完全な Employee 形に補完する。
 // これにより、どんな登録経路でもスタッフ詳細ページが必ず開ける。
 const DEFAULT_SKILLS: Skill[] = [
@@ -100,8 +102,8 @@ export function normalizeEmployee(raw: Partial<Employee> & { id: string }): Empl
   const lm = mg.lastMonth ?? ({} as Partial<LastMonthResult>);
   return {
     id: raw.id,
-    name: raw.name ?? "名称未設定",
-    nameKana: raw.nameKana ?? "",
+    name: normalizeName(raw.name ?? "名称未設定"),
+    nameKana: normalizeName(raw.nameKana ?? ""),
     photo: raw.photo ?? "",
     department: raw.department ?? "",
     team: raw.team ?? "",

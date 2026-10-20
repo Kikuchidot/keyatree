@@ -1,6 +1,7 @@
 import { getSupabaseAdmin, isSupabaseEnabled } from "@/lib/supabaseServer";
 import type { Employee } from "@/lib/mockData";
 import type { Account } from "@/lib/mockAccounts";
+import { normalizeName } from "@/lib/utils";
 
 /**
  * スタッフ（Employee）とログインアカウント（Account）を Supabase Storage に
@@ -72,30 +73,50 @@ async function listJson<T>(supabase: ReturnType<typeof getSupabaseAdmin>, prefix
   return results.filter((r): r is T => r !== null);
 }
 
+// ---- helpers: normalize names on read ----
+function normalizeStaffName(emp: Employee): Employee {
+  return {
+    ...emp,
+    name: normalizeName(emp.name),
+    nameKana: emp.nameKana ? normalizeName(emp.nameKana) : emp.nameKana,
+  };
+}
+
 // ---- Staff (Employee) ----
 export async function listStaff(): Promise<Employee[]> {
-  if (!isSupabaseEnabled()) return Array.from(memory().members.values());
+  if (!isSupabaseEnabled()) return Array.from(memory().members.values()).map(normalizeStaffName);
   const supabase = getSupabaseAdmin();
   await ensureBucket(supabase);
-  return listJson<Employee>(supabase, MEMBER_PREFIX);
+  const list = await listJson<Employee>(supabase, MEMBER_PREFIX);
+  return list.map(normalizeStaffName);
 }
 
 export async function getStaff(id: string): Promise<Employee | null> {
-  if (!isSupabaseEnabled()) return memory().members.get(id) ?? null;
-  const supabase = getSupabaseAdmin();
-  await ensureBucket(supabase);
-  return getJson<Employee>(supabase, memberPath(id));
-}
-
-export async function saveStaff(emp: Employee): Promise<Employee> {
   if (!isSupabaseEnabled()) {
-    memory().members.set(emp.id, emp);
-    return emp;
+    const e = memory().members.get(id);
+    return e ? normalizeStaffName(e) : null;
   }
   const supabase = getSupabaseAdmin();
   await ensureBucket(supabase);
-  await putJson(supabase, memberPath(emp.id), emp);
-  return emp;
+  const e = await getJson<Employee>(supabase, memberPath(id));
+  return e ? normalizeStaffName(e) : null;
+}
+
+export async function saveStaff(emp: Employee): Promise<Employee> {
+  // 氏名の全角スペースを半角に正規化
+  const normalized: Employee = {
+    ...emp,
+    name: normalizeName(emp.name),
+    nameKana: emp.nameKana ? normalizeName(emp.nameKana) : emp.nameKana,
+  };
+  if (!isSupabaseEnabled()) {
+    memory().members.set(normalized.id, normalized);
+    return normalized;
+  }
+  const supabase = getSupabaseAdmin();
+  await ensureBucket(supabase);
+  await putJson(supabase, memberPath(normalized.id), normalized);
+  return normalized;
 }
 
 export async function deleteStaff(id: string): Promise<void> {
@@ -122,14 +143,16 @@ export async function listStoredAccounts(): Promise<Account[]> {
 }
 
 export async function saveAccount(acc: Account): Promise<Account> {
+  // アカウント名も正規化
+  const normalized: Account = { ...acc, name: normalizeName(acc.name) };
   if (!isSupabaseEnabled()) {
-    memory().accounts.set(acc.id, acc);
-    return acc;
+    memory().accounts.set(normalized.id, normalized);
+    return normalized;
   }
   const supabase = getSupabaseAdmin();
   await ensureBucket(supabase);
-  await putJson(supabase, accountPath(acc.id), acc);
-  return acc;
+  await putJson(supabase, accountPath(normalized.id), normalized);
+  return normalized;
 }
 
 export async function findStoredAccountByEmail(email: string): Promise<Account | null> {

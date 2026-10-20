@@ -16,38 +16,38 @@ const BUCKET = "staff";
 
 // 登録対象（メール, 氏名, 所属チーム）
 const ENTRIES = [
-  ["y.shimada@365keyaki.onmicrosoft.com", "島田　佳子", "カスタマーオペレーションチーム"],
-  ["s.tachikawa@365keyaki.onmicrosoft.com", "立川　里美", "カスタマーオペレーションチーム"],
-  ["y.yano@365keyaki.onmicrosoft.com", "矢野　佑里", "カスタマーサポートチーム"],
-  ["s.nakamura@365keyaki.onmicrosoft.com", "中村　紫絵", "リーシングチーム"],
-  ["y.yui@365keyaki.onmicrosoft.com", "由井　結実", "カスタマーオペレーションチーム"],
-  ["f.kagawa@365keyaki.onmicrosoft.com", "加川　文香", "カスタマーオペレーションチーム"],
-  ["y.sekine@365keyaki.onmicrosoft.com", "関根　幸恵", "カスタマーオペレーションチーム"],
-  ["s.toshikawa@365keyaki.onmicrosoft.com", "利川　さやか", "カスタマーサポートチーム"],
-  ["y.kaneko@365keyaki.onmicrosoft.com", "金子　洋子", "カスタマーオペレーションチーム"],
-  ["h.matsumoto@365keyaki.onmicrosoft.com", "松本　陽菜", "カスタマーオペレーションチーム"],
-  ["n.kanbayashi@365keyaki.onmicrosoft.com", "神林　和香", "カスタマーオペレーションチーム"],
-  ["k.suzuki@365keyaki.onmicrosoft.com", "鈴木　かおり", "カスタマーオペレーションチーム"],
-  ["y.yoda@365keyaki.onmicrosoft.com", "依田　夕香", "カスタマーオペレーションチーム"],
-  ["m.hasebe@365keyaki.onmicrosoft.com", "長谷部　真菜美", "カスタマーオペレーションチーム"],
-  ["y.watanabe@365keyaki.onmicrosoft.com", "渡邊　康子", "カスタマーオペレーションチーム"],
-  ["h.hara@365keyaki.onmicrosoft.com", "原　ひとみ", "アカウントチーム"],
-  ["c.sugiyama@365keyaki.onmicrosoft.com", "杉山　千草", "カスタマーサポートチーム"],
-  ["e.kanokohata@365keyaki.onmicrosoft.com", "鹿子畑　江莉", "カスタマーオペレーションチーム"],
-  ["y.kashiwagi@365keyaki.onmicrosoft.com", "柏木　有紀子", ""],
-  ["m.nonaka@365keyaki.onmicrosoft.com", "野中　真生", "カスタマーオペレーションチーム"],
-  ["n.kaneda@365keyaki.onmicrosoft.com", "金田　那津代", "カスタマーオペレーションチーム"],
-  ["m.ito@365keyaki.onmicrosoft.com", "伊藤　美保", "カスタマーオペレーションチーム"],
-  ["s.miyamoto@365keyaki.onmicrosoft.com", "宮本　零", "アカウントチーム"],
-  ["m.iwamoto@365keyaki.onmicrosoft.com", "岩本　美代", "カスタマーオペレーションチーム"],
-  ["m.sekiguchi@365keyaki.onmicrosoft.com", "関口　美妃", "カスタマーサポートチーム"],
-  ["n.sakuma@365keyaki.onmicrosoft.com", "佐久間　なぎさ", "カスタマーオペレーションチーム"],
-  ["i.sakamoto@365keyaki.onmicrosoft.com", "坂本　泉", "カスタマーオペレーションチーム"],
-  ["a.kubota@365keyaki.onmicrosoft.com", "窪田　あずさ", "アカウントチーム"],
-  ["s.hasegawa@365keyaki.onmicrosoft.com", "長谷川　沙也香", "カスタマーオペレーションチーム"],
-  ["a.ikuta@365keyaki.onmicrosoft.com", "生田　彩", "カスタマーサポートチーム"],
-  ["t.sato@365keyaki.onmicrosoft.com", "佐藤　寿恵", "カスタマーオペレーションチーム"],
-  ["h.koga@365keyaki.onmicrosoft.com", "古賀　葉月", "リーシングアシスタントチーム"],
+  ["y.shimada@365keyaki.onmicrosoft.com", "島田 佳子", "カスタマーオペレーションチーム"],
+  ["s.tachikawa@365keyaki.onmicrosoft.com", "立川 里美", "カスタマーオペレーションチーム"],
+  ["y.yano@365keyaki.onmicrosoft.com", "矢野 佑里", "カスタマーサポートチーム"],
+  ["s.nakamura@365keyaki.onmicrosoft.com", "中村 紫絵", "リーシングチーム"],
+  ["y.yui@365keyaki.onmicrosoft.com", "由井 結実", "カスタマーオペレーションチーム"],
+  ["f.kagawa@365keyaki.onmicrosoft.com", "加川 文香", "カスタマーオペレーションチーム"],
+  ["y.sekine@365keyaki.onmicrosoft.com", "関根 幸恵", "カスタマーオペレーションチーム"],
+  ["s.toshikawa@365keyaki.onmicrosoft.com", "利川 さやか", "カスタマーサポートチーム"],
+  ["y.kaneko@365keyaki.onmicrosoft.com", "金子 洋子", "カスタマーオペレーションチーム"],
+  ["h.matsumoto@365keyaki.onmicrosoft.com", "松本 陽菜", "カスタマーオペレーションチーム"],
+  ["n.kanbayashi@365keyaki.onmicrosoft.com", "神林 和香", "カスタマーオペレーションチーム"],
+  ["k.suzuki@365keyaki.onmicrosoft.com", "鈴木 かおり", "カスタマーオペレーションチーム"],
+  ["y.yoda@365keyaki.onmicrosoft.com", "依田 夕香", "カスタマーオペレーションチーム"],
+  ["m.hasebe@365keyaki.onmicrosoft.com", "長谷部 真菜美", "カスタマーオペレーションチーム"],
+  ["y.watanabe@365keyaki.onmicrosoft.com", "渡邊 康子", "カスタマーオペレーションチーム"],
+  ["h.hara@365keyaki.onmicrosoft.com", "原 ひとみ", "アカウントチーム"],
+  ["c.sugiyama@365keyaki.onmicrosoft.com", "杉山 千草", "カスタマーサポートチーム"],
+  ["e.kanokohata@365keyaki.onmicrosoft.com", "鹿子畑 江莉", "カスタマーオペレーションチーム"],
+  ["y.kashiwagi@365keyaki.onmicrosoft.com", "柏木 有紀子", ""],
+  ["m.nonaka@365keyaki.onmicrosoft.com", "野中 真生", "カスタマーオペレーションチーム"],
+  ["n.kaneda@365keyaki.onmicrosoft.com", "金田 那津代", "カスタマーオペレーションチーム"],
+  ["m.ito@365keyaki.onmicrosoft.com", "伊藤 美保", "カスタマーオペレーションチーム"],
+  ["s.miyamoto@365keyaki.onmicrosoft.com", "宮本 零", "アカウントチーム"],
+  ["m.iwamoto@365keyaki.onmicrosoft.com", "岩本 美代", "カスタマーオペレーションチーム"],
+  ["m.sekiguchi@365keyaki.onmicrosoft.com", "関口 美妃", "カスタマーサポートチーム"],
+  ["n.sakuma@365keyaki.onmicrosoft.com", "佐久間 なぎさ", "カスタマーオペレーションチーム"],
+  ["i.sakamoto@365keyaki.onmicrosoft.com", "坂本 泉", "カスタマーオペレーションチーム"],
+  ["a.kubota@365keyaki.onmicrosoft.com", "窪田 あずさ", "アカウントチーム"],
+  ["s.hasegawa@365keyaki.onmicrosoft.com", "長谷川 沙也香", "カスタマーオペレーションチーム"],
+  ["a.ikuta@365keyaki.onmicrosoft.com", "生田 彩", "カスタマーサポートチーム"],
+  ["t.sato@365keyaki.onmicrosoft.com", "佐藤 寿恵", "カスタマーオペレーションチーム"],
+  ["h.koga@365keyaki.onmicrosoft.com", "古賀 葉月", "リーシングアシスタントチーム"],
 ];
 
 async function getJson(path) {
@@ -77,9 +77,11 @@ function genPassword() {
   return pw.split("").sort(() => (randomBytes(1)[0] % 2 ? 1 : -1)).join("");
 }
 
+function normalizeName(n) { return n.replace(/\u3000/g, " ").replace(/\s{2,}/g, " ").trim(); }
+
 function makeEmployee(id, name, team, joinedAt) {
   return {
-    id, name, nameKana: "", photo: "",
+    id, name: normalizeName(name), nameKana: "", photo: "",
     department: "", team: team || "", position: "担当者", grade: "J1",
     jobType: "管理", employmentType: "正社員", joinedAt,
     evaluationRank: "B", enneagramType: 3, enneagramLabel: "達成者", bio: "",
@@ -120,7 +122,7 @@ for (const [email, name, team] of ENTRIES) {
   const emp = makeEmployee(id, name, team, joinedAt);
   const password = genPassword();
   const account = {
-    id: `acc_${id}`, employeeId: id, name, email,
+    id: `acc_${id}`, employeeId: id, name: normalizeName(name), email,
     password, permissionId: "staff", permissionName: "一般社員",
     isActive: true, lastLoginAt: null, createdAt: new Date().toISOString(),
   };

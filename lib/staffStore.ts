@@ -2,6 +2,7 @@
 // （将来 Supabase に差し替え。現状はモック運用のためブラウザ保存）
 import { Employee } from "./mockData";
 import { Account } from "./mockAccounts";
+import { normalizeName } from "./utils";
 
 const STAFF_KEY = "keyatree_staff_v1";
 const ACC_KEY = "keyatree_accounts_v1";
@@ -99,8 +100,8 @@ export function makeNewEmployee(input: {
   const monthLabel = `${now.getFullYear()}年${now.getMonth() + 1}月`;
   return {
     id: `s_${now.getTime()}`,
-    name: input.name,
-    nameKana: input.nameKana,
+    name: normalizeName(input.name),
+    nameKana: normalizeName(input.nameKana),
     photo: "",
     department: input.department,
     team: input.team ?? "",
