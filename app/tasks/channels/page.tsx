@@ -104,42 +104,210 @@ const fileIcon = (a: TalkAttachmentT) => {
   return "📎";
 };
 
-// 添付を表示（画像はサムネイル、その他はダウンロードカード）
+// モーダル付き添付ファイルビューア
+function AttachmentViewer({
+  attachments,
+  messageId,
+  isMine,
+  onDeleteAttachment,
+}: {
+  attachments?: TalkAttachmentT[];
+  messageId: string;
+  isMine: boolean;
+  onDeleteAttachment?: (messageId: string, index: number) => void;
+}) {
+  const [modalIndex, setModalIndex] = useState<number | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (modalIndex === null) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setModalIndex(null);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [modalIndex]);
+
+  if (!attachments || attachments.length === 0) return null;
+
+  const handleDownload = (a: TalkAttachmentT) => {
+    const link = document.createElement("a");
+    link.href = a.dataUrl;
+    link.download = a.name || "file";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleCopyLink = async (a: TalkAttachmentT) => {
+    try {
+      await navigator.clipboard.writeText(a.dataUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback
+      const ta = document.createElement("textarea");
+      ta.value = a.dataUrl;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleDelete = (index: number) => {
+    if (!onDeleteAttachment) return;
+    if (!confirm("この添付ファイルを削除しますか？")) return;
+    onDeleteAttachment(messageId, index);
+  };
+
+  const current = modalIndex !== null ? attachments[modalIndex] : null;
+
+  return (
+    <>
+      <div className="mt-1.5 flex flex-wrap gap-2">
+        {attachments.map((a, i) =>
+          isImageAttachment(a) ? (
+            <div key={i} className="relative group/attach">
+              <button
+                onClick={() => setModalIndex(i)}
+                className="block rounded-lg overflow-hidden border border-gray-300 hover:border-emerald-500 transition cursor-pointer"
+                title={a.name || "画像を拡大"}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={a.dataUrl} alt={a.name || "添付画像"} className="max-h-56 max-w-[280px] object-contain bg-white" />
+              </button>
+              {isMine && onDeleteAttachment && (
+                <button
+                  onClick={() => handleDelete(i)}
+                  className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-rose-500 text-white text-xs flex items-center justify-center opacity-0 group-hover/attach:opacity-100 transition shadow"
+                  title="添付を削除"
+                >
+                  x
+                </button>
+              )}
+            </div>
+          ) : (
+            <div key={i} className="relative group/attach">
+              <button
+                onClick={() => setModalIndex(i)}
+                className="flex items-center gap-2 rounded-lg border border-gray-300 bg-gray-100 hover:border-emerald-500 hover:bg-gray-100 transition px-3 py-2 max-w-[280px] cursor-pointer"
+                title={`${a.name || "ファイル"} を表示`}
+              >
+                <span className="text-xl flex-shrink-0">{fileIcon(a)}</span>
+                <span className="min-w-0 text-left">
+                  <span className="block truncate text-[13px] text-gray-800">{a.name || "ファイル"}</span>
+                  <span className="block text-[11px] text-gray-500">{formatBytes(a.size) || "クリックで詳細"}</span>
+                </span>
+              </button>
+              {isMine && onDeleteAttachment && (
+                <button
+                  onClick={() => handleDelete(i)}
+                  className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-rose-500 text-white text-xs flex items-center justify-center opacity-0 group-hover/attach:opacity-100 transition shadow"
+                  title="添付を削除"
+                >
+                  x
+                </button>
+              )}
+            </div>
+          )
+        )}
+      </div>
+
+      {/* モーダル */}
+      {current && modalIndex !== null && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60"
+          onClick={() => setModalIndex(null)}
+        >
+          <div
+            className="relative bg-white rounded-2xl shadow-2xl max-w-[90vw] max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* ヘッダー */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <span className="text-sm font-bold text-gray-800 truncate max-w-[50vw]">
+                {current.name || (isImageAttachment(current) ? "画像" : "ファイル")}
+                {current.size ? ` (${formatBytes(current.size)})` : ""}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleDownload(current)}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition"
+                  title="ダウンロード"
+                >
+                  ダウンロード
+                </button>
+                <button
+                  onClick={() => handleCopyLink(current)}
+                  className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition relative"
+                  title="リンクをコピー"
+                >
+                  {copied ? "コピーしました" : "リンクをコピー"}
+                </button>
+                <button
+                  onClick={() => setModalIndex(null)}
+                  className="w-8 h-8 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-600 text-lg flex items-center justify-center transition"
+                  title="閉じる"
+                >
+                  x
+                </button>
+              </div>
+            </div>
+            {/* コンテンツ */}
+            <div className="flex-1 overflow-auto flex items-center justify-center p-4 bg-gray-50 min-h-[200px]">
+              {isImageAttachment(current) ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={current.dataUrl}
+                  alt={current.name || "添付画像"}
+                  className="max-w-full max-h-[75vh] object-contain"
+                />
+              ) : (
+                <div className="text-center py-10">
+                  <span className="text-6xl block mb-4">{fileIcon(current)}</span>
+                  <p className="text-lg font-bold text-gray-800">{current.name || "ファイル"}</p>
+                  <p className="text-sm text-gray-500 mt-1">{formatBytes(current.size)}</p>
+                  <button
+                    onClick={() => handleDownload(current)}
+                    className="mt-4 px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition"
+                  >
+                    ダウンロード
+                  </button>
+                </div>
+              )}
+            </div>
+            {/* ナビゲーション（複数ファイルの場合） */}
+            {attachments.length > 1 && (
+              <div className="flex items-center justify-center gap-4 px-4 py-2 border-t border-gray-200">
+                <button
+                  onClick={() => setModalIndex((modalIndex - 1 + attachments.length) % attachments.length)}
+                  className="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold transition"
+                >
+                  &lt; 前へ
+                </button>
+                <span className="text-xs text-gray-500">{modalIndex + 1} / {attachments.length}</span>
+                <button
+                  onClick={() => setModalIndex((modalIndex + 1) % attachments.length)}
+                  className="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-bold transition"
+                >
+                  次へ &gt;
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// 旧互換ラッパー（isMine/onDelete不要な箇所向け）
 function renderAttachments(attachments?: TalkAttachmentT[]) {
   if (!attachments || attachments.length === 0) return null;
-  return (
-    <div className="mt-1.5 flex flex-wrap gap-2">
-      {attachments.map((a, i) =>
-        isImageAttachment(a) ? (
-          <a
-            key={i}
-            href={a.dataUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block rounded-lg overflow-hidden border border-gray-300 hover:border-emerald-500 transition"
-            title={a.name || "画像を開く"}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={a.dataUrl} alt={a.name || "添付画像"} className="max-h-56 max-w-[280px] object-contain bg-white" />
-          </a>
-        ) : (
-          <a
-            key={i}
-            href={a.dataUrl}
-            download={a.name || "file"}
-            className="flex items-center gap-2 rounded-lg border border-gray-300 bg-gray-100 hover:border-emerald-500 hover:bg-gray-100 transition px-3 py-2 max-w-[280px]"
-            title={`${a.name || "ファイル"} をダウンロード`}
-          >
-            <span className="text-xl flex-shrink-0">{fileIcon(a)}</span>
-            <span className="min-w-0">
-              <span className="block truncate text-[13px] text-gray-800">{a.name || "ファイル"}</span>
-              <span className="block text-[11px] text-gray-500">{formatBytes(a.size) || "ダウンロード"}</span>
-            </span>
-          </a>
-        )
-      )}
-    </div>
-  );
+  return <AttachmentViewer attachments={attachments} messageId="" isMine={false} />;
 }
 
 // 引用ブロックを表示（現在 or 他トークルームのメッセージを参照）
@@ -1191,6 +1359,22 @@ function TalkView({
     else alert("削除に失敗しました");
   };
 
+  const deleteAttachment = async (messageId: string, attachIndex: number) => {
+    const msg = messages.find((m) => m.id === messageId);
+    if (!msg?.attachments) return;
+    const newAttachments = msg.attachments.filter((_, i) => i !== attachIndex);
+    const res = await fetch(`/api/task-channels/${channel.id}/talks/${talk.id}/messages/${messageId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attachments: newAttachments }),
+    });
+    if (res.ok) {
+      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, attachments: newAttachments } : m));
+    } else {
+      alert("添付ファイルの削除に失敗しました");
+    }
+  };
+
   const toggleReaction = async (id: string, emoji: string) => {
     const res = await fetch(`/api/task-channels/${channel.id}/talks/${talk.id}/messages`, {
       method: "POST",
@@ -1374,7 +1558,7 @@ function TalkView({
                           {m.text ? (
                             <div className="mt-0.5 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-800 break-words">{renderRichMessage(m.text, talk.members, meId)}</div>
                           ) : null}
-                          {renderAttachments(m.attachments)}
+                          <AttachmentViewer attachments={m.attachments} messageId={m.id} isMine={mine} onDeleteAttachment={deleteAttachment} />
                           <div className="mt-1 flex items-center gap-2 flex-wrap">
                             {reactions.map((r) => (
                               <button
@@ -2614,6 +2798,22 @@ function DmView({
     if (res.ok) setMessages((prev) => prev.filter((m) => m.id !== id));
   };
 
+  const deleteAttachment = async (messageId: string, attachIndex: number) => {
+    const msg = messages.find((m) => m.id === messageId);
+    if (!msg?.attachments) return;
+    const newAttachments = msg.attachments.filter((_, i) => i !== attachIndex);
+    const res = await fetch(`/api/dm-channels/${dmChannelId}/messages`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId, attachments: newAttachments }),
+    });
+    if (res.ok) {
+      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, attachments: newAttachments } : m));
+    } else {
+      alert("添付ファイルの削除に失敗しました");
+    }
+  };
+
   const [dmAttachError, setDmAttachError] = useState("");
   const [dmIsDragging, setDmIsDragging] = useState(false);
   const dmDragCounter = useRef(0);
@@ -2699,7 +2899,7 @@ function DmView({
                         {renderRichMessage(m.text, dmMembers, meId)}
                       </div>
                     )}
-                    {renderAttachments(m.attachments)}
+                    <AttachmentViewer attachments={m.attachments} messageId={m.id} isMine={mine} onDeleteAttachment={deleteAttachment} />
                     <div className="mt-1 flex items-center gap-2 flex-wrap">
                       {reactions.map((r) => (
                         <button

@@ -514,6 +514,29 @@ export async function toggleTalkReaction(
   return next.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
+// ---- 添付ファイル更新 ----
+export async function updateTalkMessageAttachments(
+  talkId: string,
+  messageId: string,
+  attachments: TalkAttachment[]
+): Promise<TalkMessage | null> {
+  const apply = (list: TalkMessage[]) =>
+    list.map((m) => (m.id === messageId ? { ...m, attachments } : m));
+  if (!isSupabaseEnabled()) {
+    const m = memory();
+    const arr = m.messages.get(talkId) ?? [];
+    const updated = apply(arr);
+    m.messages.set(talkId, updated);
+    return updated.find((x) => x.id === messageId) ?? null;
+  }
+  const supabase = getSupabaseAdmin();
+  await ensureBucket(supabase);
+  const list = (await getJson<TalkMessage[]>(supabase, messagePath(talkId))) ?? [];
+  const next = apply(list);
+  await putJson(supabase, messagePath(talkId), next);
+  return next.find((x) => x.id === messageId) ?? null;
+}
+
 // ---- 権限ヘルパー ----
 export function isChannelMember(channel: Channel | null, session: { id?: string; employeeId?: string } | null): boolean {
   if (!channel || !session) return false;

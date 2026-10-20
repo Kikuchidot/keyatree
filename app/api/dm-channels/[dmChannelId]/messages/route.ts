@@ -8,6 +8,7 @@ import {
   addTalkMessage,
   toggleTalkReaction,
   deleteTalkMessage,
+  updateTalkMessageAttachments,
 } from "@/lib/taskChannelStore";
 
 export const dynamic = "force-dynamic";
@@ -122,6 +123,31 @@ export async function DELETE(request: Request, ctx: Ctx) {
     if (!messageId) return NextResponse.json({ error: "messageId is required" }, { status: 400 });
     await deleteTalkMessage(auth.talk.id, messageId);
     return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+  }
+}
+
+// 添付ファイル削除 (PATCH: attachments の更新)
+export async function PATCH(request: Request, ctx: Ctx) {
+  try {
+    const { dmChannelId } = await ctx.params;
+    const auth = await authorize(dmChannelId);
+    if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    const { session, talk } = auth;
+    const meId = session.employeeId || session.id || "";
+    const body = await request.json();
+    const messageId = body.messageId;
+    if (!messageId) return NextResponse.json({ error: "messageId is required" }, { status: 400 });
+    const messages = await listTalkMessages(talk.id);
+    const target = messages.find((m) => m.id === messageId);
+    if (!target) return NextResponse.json({ error: "メッセージが見つかりません" }, { status: 404 });
+    if (target.authorId !== meId) {
+      return NextResponse.json({ error: "自分のメッセージのみ編集できます" }, { status: 403 });
+    }
+    const attachments = Array.isArray(body.attachments) ? body.attachments : [];
+    const updated = await updateTalkMessageAttachments(talk.id, messageId, attachments);
+    return NextResponse.json({ message: updated });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }
