@@ -591,19 +591,33 @@ export default function ChannelsWorkspacePage() {
                         {c.name.charAt(0)}
                       </span>
                       {renameChannelId === c.id ? (
-                        <input
-                          autoFocus
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") submitRenameChannel(c);
-                            if (e.key === "Escape") cancelRename();
-                          }}
-                          onBlur={() => submitRenameChannel(c)}
-                          disabled={renameSaving}
-                          className="flex-1 min-w-0 bg-white border border-emerald-500 rounded px-1.5 py-0.5 text-sm text-gray-800 focus:outline-none"
-                        />
+                        <div className="flex-1 min-w-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") submitRenameChannel(c);
+                              if (e.key === "Escape") cancelRename();
+                            }}
+                            disabled={renameSaving}
+                            className="flex-1 min-w-0 bg-white border border-emerald-500 rounded px-1.5 py-0.5 text-sm text-gray-800 focus:outline-none"
+                          />
+                          <button
+                            onClick={() => submitRenameChannel(c)}
+                            disabled={renameSaving}
+                            className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 flex-shrink-0"
+                          >
+                            {renameSaving ? "..." : "保存"}
+                          </button>
+                          <button
+                            onClick={cancelRename}
+                            disabled={renameSaving}
+                            className="text-[11px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 hover:bg-gray-300 disabled:opacity-50 flex-shrink-0"
+                          >
+                            取消
+                          </button>
+                        </div>
                       ) : (
                         <button
                           onClick={() => selectChannel(c.id)}
@@ -693,19 +707,33 @@ export default function ChannelsWorkspacePage() {
                                 >
                                   <span className="text-gray-500 text-xs flex-shrink-0">#</span>
                                   {renameTalkId === t.id ? (
-                                    <input
-                                      autoFocus
-                                      value={renameValue}
-                                      onChange={(e) => setRenameValue(e.target.value)}
-                                      onClick={(e) => e.stopPropagation()}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter") submitRenameTalk(c.id, t);
-                                        if (e.key === "Escape") cancelRename();
-                                      }}
-                                      onBlur={() => submitRenameTalk(c.id, t)}
-                                      disabled={renameSaving}
-                                      className="flex-1 min-w-0 bg-white border border-emerald-500 rounded px-1.5 py-0.5 text-[13px] text-gray-800 focus:outline-none"
-                                    />
+                                    <div className="flex-1 min-w-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                      <input
+                                        autoFocus
+                                        value={renameValue}
+                                        onChange={(e) => setRenameValue(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") submitRenameTalk(c.id, t);
+                                          if (e.key === "Escape") cancelRename();
+                                        }}
+                                        disabled={renameSaving}
+                                        className="flex-1 min-w-0 bg-white border border-emerald-500 rounded px-1.5 py-0.5 text-[13px] text-gray-800 focus:outline-none"
+                                      />
+                                      <button
+                                        onClick={() => submitRenameTalk(c.id, t)}
+                                        disabled={renameSaving}
+                                        className="text-[10px] px-1 py-0.5 rounded bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 flex-shrink-0"
+                                      >
+                                        {renameSaving ? "..." : "保存"}
+                                      </button>
+                                      <button
+                                        onClick={cancelRename}
+                                        disabled={renameSaving}
+                                        className="text-[10px] px-1 py-0.5 rounded bg-gray-200 text-gray-600 hover:bg-gray-300 disabled:opacity-50 flex-shrink-0"
+                                      >
+                                        取消
+                                      </button>
+                                    </div>
                                   ) : (
                                     <span
                                       className="text-[13px] truncate flex-1"
