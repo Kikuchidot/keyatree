@@ -12,6 +12,7 @@ import {
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ channelId: string; talkId: string }> };
 
@@ -83,8 +84,8 @@ export async function POST(request: Request, ctx: Ctx) {
 
     const text = (body.text ?? "").trim();
 
-    // 添付ファイル（data:... 形式・1ファイル最大5MB・最大6件）。画像以外も許可。
-    const MAX_ATTACH_CHARS = 7_000_000; // 約5MBのファイル（base64換算）
+    // 添付ファイル（data:... 形式・1ファイル最大50MB・最大6件）。画像以外も許可。
+    const MAX_ATTACH_CHARS = 70_000_000; // 約50MBのファイル（base64換算）
     const attachments = Array.isArray(body.attachments)
       ? body.attachments
           .filter(

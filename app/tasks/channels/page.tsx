@@ -929,7 +929,9 @@ function TalkView({
   const mainFileInputRef = useRef<HTMLInputElement | null>(null);
   const replyFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const MAX_FILE_BYTES = 5 * 1024 * 1024; // 1ファイル最大5MB
+  const MAX_FILE_BYTES = 50 * 1024 * 1024; // 1ファイル最大50MB
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
 
   // 画像・ファイルを添付に追加（画像は縮小、その他はそのまま data URL 化）
   const addFiles = async (files: File[], target: "main" | "reply") => {
@@ -945,7 +947,7 @@ function TalkView({
           results.push({ name: f.name || "screenshot.png", dataUrl, type: f.type || "image/png", size: f.size });
         } else {
           if (f.size > MAX_FILE_BYTES) {
-            errors.push(`${f.name || "ファイル"}は5MBを超えています`);
+            errors.push(`${f.name || "ファイル"}は50MBを超えています`);
             continue;
           }
           const dataUrl = await fileToDataUrl(f);
@@ -960,6 +962,29 @@ function TalkView({
       if (target === "main") setComposerOpen(true);
     }
     if (errors.length > 0) setAttachError(errors.join(" / "));
+  };
+
+  // ドラッグ&ドロップ
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current += 1;
+    if (e.dataTransfer?.types?.includes("Files")) setIsDragging(true);
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) { dragCounter.current = 0; setIsDragging(false); }
+  };
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); };
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length > 0) addFiles(files, "main");
   };
 
   // 貼り付け（Ctrl+V）: 画像のみ
@@ -1379,7 +1404,22 @@ function TalkView({
             </div>
           </div>
           {/* 新規投稿コンポーザ */}
-          <div className="flex-shrink-0 border-t border-gray-200 p-3">
+          <div
+            className={`flex-shrink-0 border-t border-gray-200 p-3 relative transition-colors ${isDragging ? "bg-emerald-50 border-emerald-400" : ""}`}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+          >
+            {isDragging && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-emerald-50/80 border-2 border-dashed border-emerald-500 rounded-xl pointer-events-none">
+                <div className="text-center">
+                  <span className="text-3xl">📎</span>
+                  <p className="text-sm font-bold text-emerald-700 mt-1">ファイルをドロップしてください</p>
+                  <p className="text-xs text-emerald-600 mt-0.5">最大50MB / 6ファイルまで</p>
+                </div>
+              </div>
+            )}
             <div className="max-w-2xl mx-auto">
               {canManage ? (
                 composerOpen ? (
@@ -2467,18 +2507,46 @@ function DmView({
     if (res.ok) setMessages((prev) => prev.filter((m) => m.id !== id));
   };
 
+  const [dmAttachError, setDmAttachError] = useState("");
+  const [dmIsDragging, setDmIsDragging] = useState(false);
+  const dmDragCounter = useRef(0);
+
   const addFiles = async (files: File[]) => {
+    setDmAttachError("");
+    const errors: string[] = [];
     for (const f of files) {
       try {
         if (f.type.startsWith("image/")) {
           const dataUrl = await resizeImageToDataUrl(f);
           setAttachments((prev) => [...prev, { name: f.name, dataUrl, type: f.type, size: f.size }].slice(0, 6));
-        } else if (f.size <= 5 * 1024 * 1024) {
+        } else if (f.size <= 50 * 1024 * 1024) {
           const dataUrl = await fileToDataUrl(f);
           setAttachments((prev) => [...prev, { name: f.name, dataUrl, type: f.type, size: f.size }].slice(0, 6));
+        } else {
+          errors.push(`${f.name || "ファイル"}は50MBを超えています`);
         }
       } catch { /* ignore */ }
     }
+    if (errors.length > 0) setDmAttachError(errors.join(" / "));
+  };
+
+  const handleDmDragEnter = (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    dmDragCounter.current += 1;
+    if (e.dataTransfer?.types?.includes("Files")) setDmIsDragging(true);
+  };
+  const handleDmDragLeave = (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    dmDragCounter.current -= 1;
+    if (dmDragCounter.current <= 0) { dmDragCounter.current = 0; setDmIsDragging(false); }
+  };
+  const handleDmDragOver = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); };
+  const handleDmDrop = (e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    dmDragCounter.current = 0;
+    setDmIsDragging(false);
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length > 0) addFiles(files);
   };
 
   return (
@@ -2553,8 +2621,24 @@ function DmView({
       </div>
 
       {/* メッセージ入力 */}
-      <div className="flex-shrink-0 border-t border-gray-200 p-3">
+      <div
+        className={`flex-shrink-0 border-t border-gray-200 p-3 relative transition-colors ${dmIsDragging ? "bg-indigo-50 border-indigo-400" : ""}`}
+        onDragEnter={handleDmDragEnter}
+        onDragLeave={handleDmDragLeave}
+        onDragOver={handleDmDragOver}
+        onDrop={handleDmDrop}
+      >
+        {dmIsDragging && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-indigo-50/80 border-2 border-dashed border-indigo-500 rounded-xl pointer-events-none">
+            <div className="text-center">
+              <span className="text-3xl">📎</span>
+              <p className="text-sm font-bold text-indigo-700 mt-1">ファイルをドロップしてください</p>
+              <p className="text-xs text-indigo-600 mt-0.5">最大50MB / 6ファイルまで</p>
+            </div>
+          </div>
+        )}
         <div className="max-w-2xl mx-auto">
+          {dmAttachError && <p className="mb-1 text-xs text-rose-400">{dmAttachError}</p>}
           {attachments.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2">
               {attachments.map((a, i) => (

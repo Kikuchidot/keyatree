@@ -12,6 +12,7 @@ import {
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ dmChannelId: string }> };
 
@@ -66,7 +67,7 @@ export async function POST(request: Request, ctx: Ctx) {
     }
 
     const text = (body.text ?? "").trim();
-    const MAX_ATTACH_CHARS = 7_000_000;
+    const MAX_ATTACH_CHARS = 70_000_000;
     const attachments = Array.isArray(body.attachments)
       ? body.attachments
           .filter(
