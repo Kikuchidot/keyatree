@@ -313,6 +313,18 @@ export async function deleteChannel(id: string): Promise<void> {
   }
 }
 
+export async function listArchivedChannels(): Promise<Channel[]> {
+  if (!isSupabaseEnabled()) {
+    return Array.from(memory().channels.values())
+      .filter((c) => c.archived && (c as Channel & { type?: string }).type !== "dm")
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  const supabase = getSupabaseAdmin();
+  await ensureBucket(supabase);
+  const all = await listJson<Channel>(supabase, CHANNEL_PREFIX);
+  return all.filter((c) => c.archived && (c as Channel & { type?: string }).type !== "dm").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
 // ---- Talks ----
 export async function listTalks(channelId: string): Promise<Talk[]> {
   if (!isSupabaseEnabled()) {

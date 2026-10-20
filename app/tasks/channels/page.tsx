@@ -174,6 +174,7 @@ export default function ChannelsWorkspacePage() {
   const [search, setSearch] = useState("");
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [talkModalChannel, setTalkModalChannel] = useState<Channel | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: "channel"; channel: Channel } | { type: "talk"; channelId: string; talk: Talk } | null>(null);
 
   // 並べ替え / 非表示
   const [channelOrder, setChannelOrder] = useState<string[]>([]);
@@ -186,6 +187,7 @@ export default function ChannelsWorkspacePage() {
 
   // ダイレクトチャット
   const [dmChannels, setDmChannels] = useState<DmChannel[]>([]);
+  const [archivedChannels, setArchivedChannels] = useState<Channel[]>([]);
   const [dmLoading, setDmLoading] = useState(false);
   const [showNewDm, setShowNewDm] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"channels" | "dm">("channels");
@@ -236,44 +238,66 @@ export default function ChannelsWorkspacePage() {
   };
 
   // ---- 削除 ----
-  const deleteChannelAction = async (c: Channel) => {
-    const talkCount = (talksByChannel[c.id] ?? []).length;
-    const msg = talkCount > 0
-      ? `チャンネル「${c.name}」を削除しますか？\n\nチャンネル内のトークルーム ${talkCount} 件（アーカイブ済み含む全トーク）・メッセージ・依頼（タスク）もすべて削除され、元に戻せません。`
-      : `チャンネル「${c.name}」を削除しますか？\n\n元に戻せません。`;
-    if (!confirm(msg)) return;
-    const res = await fetch(`/api/task-channels/${c.id}`, { method: "DELETE" });
-    if (res.ok) {
-      setChannels((prev) => prev.filter((x) => x.id !== c.id));
-      setTalksByChannel((prev) => {
-        const next = { ...prev };
-        delete next[c.id];
-        return next;
-      });
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        next.delete(c.id);
-        return next;
-      });
-      if (selection && "channelId" in selection && selection.channelId === c.id) setSelection(null);
-    } else {
-      const d = await res.json().catch(() => null);
-      alert(d?.error ?? "削除に失敗しました");
-    }
+  const deleteChannelAction = (c: Channel) => {
+    setDeleteTarget({ type: "channel", channel: c });
   };
 
-  const deleteTalkAction = async (channelId: string, t: Talk) => {
-    if (!confirm(`トークルーム「${t.name}」を削除しますか？\n\nメッセージ・依頼（タスク）もすべて削除され、元に戻せません。`)) return;
-    const res = await fetch(`/api/task-channels/${channelId}/talks/${t.id}`, { method: "DELETE" });
+  const deleteTalkAction = (channelId: string, t: Talk) => {
+    setDeleteTarget({ type: "talk", channelId, talk: t });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    if (deleteTarget.type === "channel") {
+      const c = deleteTarget.channel;
+      const res = await fetch(`/api/task-channels/${c.id}`, { method: "DELETE" });
+      if (res.ok) {
+        setChannels((prev) => prev.filter((x) => x.id !== c.id));
+        setTalksByChannel((prev) => {
+          const next = { ...prev };
+          delete next[c.id];
+          return next;
+        });
+        setExpanded((prev) => {
+          const next = new Set(prev);
+          next.delete(c.id);
+          return next;
+        });
+        if (selection && "channelId" in selection && selection.channelId === c.id) setSelection(null);
+        // Refresh archived list
+        loadArchivedChannels();
+      } else {
+        const d = await res.json().catch(() => null);
+        alert(d?.error ?? "削除に失敗しました");
+      }
+    } else {
+      const { channelId, talk: t } = deleteTarget;
+      const res = await fetch(`/api/task-channels/${channelId}/talks/${t.id}`, { method: "DELETE" });
+      if (res.ok) {
+        setTalksByChannel((prev) => ({
+          ...prev,
+          [channelId]: (prev[channelId] ?? []).filter((x) => x.id !== t.id),
+        }));
+        if (selection?.type === "talk" && selection.talkId === t.id) setSelection(null);
+      } else {
+        const d = await res.json().catch(() => null);
+        alert(d?.error ?? "削除に失敗しました");
+      }
+    }
+    setDeleteTarget(null);
+  };
+
+  const restoreChannel = async (c: Channel) => {
+    const res = await fetch(`/api/task-channels/${c.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archived: false }),
+    });
     if (res.ok) {
-      setTalksByChannel((prev) => ({
-        ...prev,
-        [channelId]: (prev[channelId] ?? []).filter((x) => x.id !== t.id),
-      }));
-      if (selection?.type === "talk" && selection.talkId === t.id) setSelection(null);
+      load();
     } else {
       const d = await res.json().catch(() => null);
-      alert(d?.error ?? "削除に失敗しました");
+      alert(d?.error ?? "復元に失敗しました");
     }
   };
 
@@ -281,9 +305,16 @@ export default function ChannelsWorkspacePage() {
     setLoading(true);
     fetch("/api/task-channels")
       .then((r) => r.json())
-      .then((d) => setChannels(d?.channels ?? []))
+      .then((d) => { setChannels(d?.channels ?? []); setArchivedChannels(d?.archivedChannels ?? []); })
       .catch(() => setChannels([]))
       .finally(() => setLoading(false));
+  }, []);
+
+  const loadArchivedChannels = useCallback(() => {
+    fetch("/api/task-channels")
+      .then((r) => r.json())
+      .then((d) => setArchivedChannels(d?.archivedChannels ?? []))
+      .catch(() => {});
   }, []);
 
   const loadDms = useCallback(() => {
@@ -706,6 +737,25 @@ export default function ChannelsWorkspacePage() {
               })
             )
             )}
+            {sidebarTab === "channels" && isAdmin && archivedChannels.length > 0 && (
+              <div className="mt-3 px-1">
+                <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wide px-1 mb-1">アーカイブ済みチャンネル</div>
+                {archivedChannels.map((c) => (
+                  <div key={c.id} className="flex items-center gap-1.5 rounded-lg px-1.5 py-1.5 opacity-60 hover:opacity-100 transition">
+                    <span className={`w-6 h-6 rounded ${colorFor(c.id)} flex items-center justify-center text-white text-xs font-bold flex-shrink-0 opacity-50`}>
+                      {c.name.charAt(0)}
+                    </span>
+                    <span className="text-sm text-gray-500 truncate flex-1">{c.name}</span>
+                    <button
+                      onClick={() => restoreChannel(c)}
+                      className="text-[11px] font-bold text-emerald-600 hover:text-emerald-500 px-1.5 py-0.5 rounded border border-emerald-200 hover:bg-emerald-50 transition"
+                    >
+                      復元
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="px-4 py-2 border-t border-gray-200">
@@ -807,6 +857,14 @@ export default function ChannelsWorkspacePage() {
           currentName={renameTarget.currentName}
           onClose={() => setRenameTarget(null)}
           onSubmit={handleRenameSubmit}
+        />
+      )}
+
+      {deleteTarget && (
+        <DeleteConfirmModal
+          target={deleteTarget}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteTarget(null)}
         />
       )}
     </div>
@@ -2858,6 +2916,89 @@ function NewDmModal({
               ))
             )}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeleteConfirmModal({
+  target,
+  onConfirm,
+  onCancel,
+}: {
+  target: { type: "channel"; channel: { id: string; name: string } } | { type: "talk"; channelId: string; talk: { id: string; name: string } };
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const isChannel = target.type === "channel";
+  const name = isChannel ? target.channel.name : target.talk.name;
+  const matched = isChannel ? input === name : true; // talks don't require name input
+
+  const handleConfirm = async () => {
+    setBusy(true);
+    await onConfirm();
+    setBusy(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" onClick={onCancel}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-gradient-to-r from-rose-500 to-red-500 px-5 py-4 flex items-center justify-between">
+          <h2 className="text-white font-bold text-base">
+            {isChannel ? "チャンネルを削除" : "トークルームを削除"}
+          </h2>
+          <button onClick={onCancel} className="text-white/70 hover:text-white text-lg leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="bg-rose-50 border border-rose-200 rounded-xl p-4">
+            <p className="text-sm text-rose-800 font-bold mb-1">
+              {isChannel ? "⚠ この操作はチャンネルをアーカイブします" : "⚠ このトークルームを削除しますか？"}
+            </p>
+            <p className="text-xs text-rose-700">
+              {isChannel
+                ? `チャンネル「${name}」を削除すると、すべてのトークルームとメッセージが非表示になります。管理者はアーカイブ済みチャンネルから復元できます。`
+                : `トークルーム「${name}」を削除すると、メッセージ・依頼（タスク）もすべて削除され、元に戻せません。`}
+            </p>
+          </div>
+
+          {isChannel && (
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1">
+                確認のため、チャンネル名 <span className="font-black text-rose-600">{name}</span> を入力してください
+              </label>
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={name}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
+                autoFocus
+              />
+            </div>
+          )}
+
+          {!isChannel && (
+            <p className="text-sm text-gray-600">
+              トークルーム「<span className="font-bold">{name}</span>」を削除してもよろしいですか？
+            </p>
+          )}
+        </div>
+        <div className="px-5 pb-5 flex gap-2 justify-end">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition"
+          >
+            キャンセル
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={!matched || busy}
+            className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {busy ? "処理中..." : "削除する"}
+          </button>
         </div>
       </div>
     </div>

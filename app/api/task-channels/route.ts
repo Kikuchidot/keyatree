@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "@/lib/goalNavigatorStore";
 import {
   listChannels,
+  listArchivedChannels,
   createChannel,
   seedChannels,
   type ChannelMember,
@@ -14,7 +15,8 @@ export async function GET() {
   try {
     await seedChannels();
     const channels = await listChannels();
-    return NextResponse.json({ channels });
+    const archivedChannels = await listArchivedChannels();
+    return NextResponse.json({ channels, archivedChannels });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

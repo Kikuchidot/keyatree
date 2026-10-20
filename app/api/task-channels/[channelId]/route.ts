@@ -3,7 +3,6 @@ import { getServerSession } from "@/lib/goalNavigatorStore";
 import {
   getChannel,
   saveChannel,
-  deleteChannel,
   listTalks,
   type ChannelMember,
 } from "@/lib/taskChannelStore";
@@ -78,7 +77,10 @@ export async function DELETE(_request: Request, ctx: Ctx) {
     if (session.permissionId !== "admin") {
       return NextResponse.json({ error: "チャンネルの削除は管理者のみ可能です" }, { status: 403 });
     }
-    await deleteChannel(channelId);
+    const channel = await getChannel(channelId);
+    if (!channel) return NextResponse.json({ error: "チャンネルが見つかりません" }, { status: 404 });
+    channel.archived = true;
+    await saveChannel(channel);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
