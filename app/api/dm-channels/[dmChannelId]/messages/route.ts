@@ -10,6 +10,7 @@ import {
   deleteTalkMessage,
   updateTalkMessageAttachments,
 } from "@/lib/taskChannelStore";
+import { uploadAttachments } from "@/lib/attachmentStorage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -69,7 +70,7 @@ export async function POST(request: Request, ctx: Ctx) {
 
     const text = (body.text ?? "").trim();
     const MAX_ATTACH_CHARS = 70_000_000;
-    const attachments = Array.isArray(body.attachments)
+    const rawAttachments = Array.isArray(body.attachments)
       ? body.attachments
           .filter(
             (a) =>
@@ -85,6 +86,9 @@ export async function POST(request: Request, ctx: Ctx) {
             size: typeof a.size === "number" ? a.size : undefined,
           }))
       : [];
+
+    // Supabase Storage にアップロードし、短い公開 URL に差し替え
+    const attachments = await uploadAttachments(rawAttachments, channel.id, talk.id);
 
     if (!text && attachments.length === 0) {
       return NextResponse.json({ error: "メッセージを入力してください" }, { status: 400 });

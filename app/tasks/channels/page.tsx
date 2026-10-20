@@ -81,7 +81,7 @@ function fmt(iso: string) {
 type TalkAttachmentT = { name?: string; dataUrl: string; type?: string; size?: number };
 
 const isImageAttachment = (a: TalkAttachmentT) =>
-  (a.type?.startsWith("image/") ?? false) || a.dataUrl.startsWith("data:image/");
+  (a.type?.startsWith("image/") ?? false) || a.dataUrl.startsWith("data:image/") || /\.(png|jpe?g|gif|webp|svg|bmp)(\?|$)/i.test(a.dataUrl);
 
 const formatBytes = (n?: number) => {
   if (!n || n <= 0) return "";
@@ -131,12 +131,32 @@ function AttachmentViewer({
   if (!attachments || attachments.length === 0) return null;
 
   const handleDownload = (a: TalkAttachmentT) => {
-    const link = document.createElement("a");
-    link.href = a.dataUrl;
-    link.download = a.name || "file";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    if (a.dataUrl.startsWith("data:")) {
+      const link = document.createElement("a");
+      link.href = a.dataUrl;
+      link.download = a.name || "file";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      // Storage URL: fetch して Blob 化し、ダウンロード
+      fetch(a.dataUrl)
+        .then((res) => res.blob())
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = a.name || "file";
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        })
+        .catch(() => {
+          // fallback: 新しいタブで開く
+          window.open(a.dataUrl, "_blank");
+        });
+    }
   };
 
   const handleCopyLink = async (a: TalkAttachmentT) => {
