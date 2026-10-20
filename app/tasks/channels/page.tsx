@@ -801,6 +801,7 @@ export default function ChannelsWorkspacePage() {
               dmChannelId={selection.dmChannelId}
               peer={selection.peer}
               meId={meId}
+              meName={session?.name ?? ""}
               onMessageSent={() => loadDms()}
             />
           ) : (
@@ -2436,11 +2437,13 @@ function DmView({
   dmChannelId,
   peer,
   meId,
+  meName,
   onMessageSent,
 }: {
   dmChannelId: string;
   peer: { id: string; name: string };
   meId: string;
+  meName: string;
   onMessageSent: () => void;
 }) {
   const [messages, setMessages] = useState<TalkMessage[]>([]);
@@ -2450,6 +2453,7 @@ function DmView({
   const [attachments, setAttachments] = useState<TalkAttachmentT[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const dmMembers = [{ id: peer.id, name: peer.name }, ...(meName ? [{ id: meId, name: meName }] : [])];
 
   const loadMessages = useCallback(() => {
     setLoading(true);
@@ -2473,7 +2477,7 @@ function DmView({
     if ((!t && attachments.length === 0) || sending) return;
     setSending(true);
     try {
-      const mentions = extractMentions(t, [{ id: peer.id, name: peer.name }]);
+      const mentions = extractMentions(t, dmMembers);
       const res = await fetch(`/api/dm-channels/${dmChannelId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2591,7 +2595,7 @@ function DmView({
                     </div>
                     {m.text && (
                       <div className="mt-0.5 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-800 break-words whitespace-pre-wrap">
-                        {renderRichMessage(m.text, [{ id: peer.id, name: peer.name }], meId)}
+                        {renderRichMessage(m.text, dmMembers, meId)}
                       </div>
                     )}
                     {renderAttachments(m.attachments)}
@@ -2690,7 +2694,7 @@ function DmView({
             <MentionTextarea
               value={text}
               onChange={setText}
-              members={[{ id: peer.id, name: peer.name }]}
+              members={dmMembers}
               onSubmit={send}
               onImageFiles={(files) => addFiles(files.filter((f) => f.type.startsWith("image/")))}
               rows={1}
