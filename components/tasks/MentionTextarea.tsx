@@ -298,8 +298,12 @@ export default function MentionTextarea({
           onScroll={syncScroll}
           rows={rows}
           placeholder={placeholder}
-          className={`${className} relative bg-transparent text-transparent caret-gray-800 selection:bg-emerald-200/70`}
-          style={{ WebkitTextFillColor: "transparent" }}
+          className={`${className} relative selection:bg-emerald-200/70`}
+          style={
+            value
+              ? { background: "transparent", color: "transparent", WebkitTextFillColor: "transparent", caretColor: "#1f2937" }
+              : { background: "transparent", caretColor: "#1f2937" }
+          }
         />
       </div>
       {open && suggestions.length > 0 && (
