@@ -462,25 +462,8 @@ function CreateTalkModal({
   const [selected, setSelected] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  // アカウント登録済みの全スタッフを招待候補にする（取得できない場合はチャンネルメンバー）。
-  const [source, setSource] = useState<{ id: string; name: string; department?: string; team?: string }[]>(candidates);
-
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/staff")
-      .then((r) => r.json())
-      .then((d) => {
-        if (!alive) return;
-        const staff = (d?.staff ?? []) as { id: string; name: string; department?: string; team?: string }[];
-        if (Array.isArray(staff) && staff.length > 0) {
-          setSource(staff.map((s) => ({ id: s.id, name: s.name, department: s.department, team: s.team })));
-        }
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // チャンネルメンバーのみを招待候補にする
+  const source = candidates;
 
   const submit = async () => {
     if (!name.trim()) {
@@ -540,7 +523,7 @@ function CreateTalkModal({
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">招待するメンバー</label>
-            <p className="text-[11px] text-gray-400 mb-1">作成者（あなた）は自動で参加します。アカウント登録済みの全スタッフから選択できます。</p>
+            <p className="text-[11px] text-gray-400 mb-1">作成者（あなた）は自動で参加します。チャンネルメンバーから選択できます。</p>
             <MemberPicker
               selectedIds={selected}
               onChange={setSelected}
