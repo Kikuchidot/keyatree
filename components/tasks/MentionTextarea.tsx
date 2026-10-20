@@ -1,9 +1,13 @@
 "use client";
 
-import { useRef, useState, type KeyboardEvent, type ClipboardEvent } from "react";
-import { renderRichMessage } from "@/lib/messageFormat";
+import { useRef, useState, type KeyboardEvent, type ClipboardEvent, type UIEvent } from "react";
+import { renderComposerMessage } from "@/lib/messageFormat";
+import { ALL_MENTION_ID, ALL_MENTION_NAME } from "@/lib/mentions";
 
 type Member = { id: string; name: string };
+
+/** 「@全員」仮想メンバー */
+const ALL_MEMBER: Member = { id: ALL_MENTION_ID, name: ALL_MENTION_NAME };
 
 /**
  * @メンション用のオートコンプリート付きテキストエリア。
@@ -44,10 +48,24 @@ export default function MentionTextarea({
   const [active, setActive] = useState(0);
 
   const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+
+  // 候補リスト: 先頭に「@全員」、その後に個人メンバーを表示
   const suggestions = open
-    ? members
-        .filter((m) => query === "" || norm(m.name).includes(norm(query)))
-        .slice(0, 8)
+    ? (() => {
+        const q = norm(query);
+        const allMatch =
+          q === "" ||
+          "全員".includes(q) ||
+          "all".includes(q) ||
+          "ぜんいん".includes(q);
+        const personalMatches = members
+          .filter((m) => m.id !== ALL_MENTION_ID && (q === "" || norm(m.name).includes(q)))
+          .slice(0, 7);
+        const result: Member[] = [];
+        if (allMatch) result.push(ALL_MEMBER);
+        result.push(...personalMatches);
+        return result.slice(0, 8);
+      })()
     : [];
 
   const detect = (el: HTMLTextAreaElement) => {
@@ -216,6 +234,16 @@ export default function MentionTextarea({
     }
   };
 
+  // 装飾オーバーレイ（背景div）とtextareaのスクロール位置を同期
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const syncScroll = (e: UIEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+    if (backdropRef.current) {
+      backdropRef.current.scrollTop = el.scrollTop;
+      backdropRef.current.scrollLeft = el.scrollLeft;
+    }
+  };
+
   return (
     <div className="relative flex-1 min-w-0">
       {showToolbar && (
@@ -244,48 +272,73 @@ export default function MentionTextarea({
           ))}
         </div>
       )}
-      {showToolbar && value.trim() !== "" && (
-        <div className="mb-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 max-h-32 overflow-y-auto">
-          {renderRichMessage(value, members, meId)}
+      <div className="relative">
+        {/* 装飾オーバーレイ：textarea の文字は透明にし、背後の div に装飾済みテキストを表示する。
+            文字位置を変えないためキャレットと描画がずれない。 */}
+        <div
+          ref={backdropRef}
+          aria-hidden
+          className={`${className} pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words`}
+        >
+          {renderComposerMessage(value, members, meId)}
+          {value.endsWith("\n") ? "\n" : ""}
         </div>
-      )}
-      <textarea
-        ref={ref}
-        autoFocus={autoFocus}
-        value={value}
-        onChange={(e) => {
-          onChange(e.target.value);
-          detect(e.target);
-        }}
-        onKeyDown={onKeyDown}
-        onKeyUp={(e) => detect(e.currentTarget)}
-        onClick={(e) => detect(e.currentTarget)}
-        onPaste={onPaste}
-        rows={rows}
-        placeholder={placeholder}
-        className={className}
-      />
+        <textarea
+          ref={ref}
+          autoFocus={autoFocus}
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+            detect(e.target);
+          }}
+          onKeyDown={onKeyDown}
+          onKeyUp={(e) => detect(e.currentTarget)}
+          onClick={(e) => detect(e.currentTarget)}
+          onPaste={onPaste}
+          onScroll={syncScroll}
+          rows={rows}
+          placeholder={placeholder}
+          className={`${className} relative bg-transparent text-transparent caret-gray-800 selection:bg-emerald-200/70`}
+          style={{ WebkitTextFillColor: "transparent" }}
+        />
+      </div>
       {open && suggestions.length > 0 && (
-        <div className="absolute left-0 bottom-full mb-1 z-30 w-64 max-h-56 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl py-1">
-          {suggestions.map((m, i) => (
-            <button
-              key={m.id}
-              type="button"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                insert(m);
-              }}
-              onMouseEnter={() => setActive(i)}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm transition ${
-                i === active ? "bg-emerald-600/30 text-white" : "text-zinc-200 hover:bg-zinc-800"
-              }`}
-            >
-              <span className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                {m.name.charAt(0)}
-              </span>
-              <span className="truncate">{m.name}</span>
-            </button>
-          ))}
+        <div className="absolute left-0 bottom-full mb-1 z-50 w-64 max-h-56 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl py-1">
+          {suggestions.map((m, i) => {
+            const isAll = m.id === ALL_MENTION_ID;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  insert(m);
+                }}
+                onMouseEnter={() => setActive(i)}
+                className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm transition ${
+                  i === active ? "bg-emerald-600/30 text-white" : "text-zinc-200 hover:bg-zinc-800"
+                }`}
+              >
+                <span
+                  className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${
+                    isAll ? "bg-sky-500" : "bg-emerald-500"
+                  }`}
+                >
+                  {isAll ? "All" : m.name.charAt(0)}
+                </span>
+                <span className="truncate">
+                  {isAll ? (
+                    <>
+                      <span className="font-bold">@全員</span>
+                      <span className="text-zinc-400 text-xs ml-1">- 参加者全員にメンション</span>
+                    </>
+                  ) : (
+                    m.name
+                  )}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { segmentMentions } from "@/lib/mentions";
+import { segmentMentions, ALL_MENTION_ID } from "@/lib/mentions";
 import type { ReactNode } from "react";
 
 type Member = { id: string; name: string };
@@ -10,11 +10,18 @@ function renderMentionRuns(text: string, members: Member[], meId: string, keyPre
   const segs = segmentMentions(text, members);
   return segs.map((s, i) => {
     if (s.type === "mention") {
-      const isMe = s.id === meId;
+      const isAll = s.id === ALL_MENTION_ID;
+      const isMe = s.id === meId || isAll;
       return (
         <span
           key={`${keyPrefix}-m${i}`}
-          className={`font-bold rounded px-1 ${isMe ? "bg-emerald-500/30 text-emerald-200" : "text-emerald-300"}`}
+          className={`font-bold rounded px-1 ${
+            isAll
+              ? "bg-sky-200 text-sky-900"
+              : isMe
+                ? "bg-emerald-200 text-emerald-900"
+                : "text-emerald-700"
+          }`}
         >
           @{s.name}
         </span>
@@ -149,7 +156,7 @@ export function renderRichMessage(text: string, members: Member[], meId: string)
     // ### must be checked before ## and #
     if (H3.test(t)) {
       blocks.push(
-        <p key={`k${key++}`} className="text-sm font-bold text-white my-0.5">
+        <p key={`k${key++}`} className="text-sm font-bold text-gray-900 my-0.5">
           {renderInline(t.replace(H3, ""), members, meId, `h3-${key}`)}
         </p>
       );
@@ -158,7 +165,7 @@ export function renderRichMessage(text: string, members: Member[], meId: string)
     }
     if (H2.test(t)) {
       blocks.push(
-        <p key={`k${key++}`} className="text-base font-bold text-white my-0.5">
+        <p key={`k${key++}`} className="text-base font-bold text-gray-900 my-0.5">
           {renderInline(t.replace(H2, ""), members, meId, `h2-${key}`)}
         </p>
       );
@@ -167,7 +174,7 @@ export function renderRichMessage(text: string, members: Member[], meId: string)
     }
     if (H1.test(t)) {
       blocks.push(
-        <p key={`k${key++}`} className="text-lg font-bold text-white my-0.5">
+        <p key={`k${key++}`} className="text-lg font-bold text-gray-900 my-0.5">
           {renderInline(t.replace(H1, ""), members, meId, `h1-${key}`)}
         </p>
       );
@@ -226,4 +233,153 @@ export function renderRichMessage(text: string, members: Member[], meId: string)
   }
 
   return <div className="space-y-1">{blocks}</div>;
+}
+
+// ---- 入力中オーバーレイ用：記法文字を保持したまま装飾だけ適用する ----
+
+const DIM = "text-gray-400";
+
+// インライン記法のマーカー文字（** や == など）を薄く残し、中身に装飾を適用。
+// 文字数・位置を変えないため、textarea のキャレット位置と完全に一致する。
+function renderComposerInline(text: string, members: Member[], meId: string, keyPrefix: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let buf = "";
+  let i = 0;
+  let k = 0;
+  const flush = () => {
+    if (buf) {
+      nodes.push(...renderMentionRuns(buf, members, meId, `${keyPrefix}-r${k++}`));
+      buf = "";
+    }
+  };
+  while (i < text.length) {
+    if (text[i] === "`") {
+      const end = text.indexOf("`", i + 1);
+      if (end !== -1) {
+        flush();
+        nodes.push(
+          <span key={`${keyPrefix}-c${k++}`}>
+            <span className={DIM}>`</span>
+            <code className="bg-gray-200 text-pink-600 rounded px-0.5 text-[0.85em] font-mono">{text.slice(i + 1, end)}</code>
+            <span className={DIM}>`</span>
+          </span>
+        );
+        i = end + 1;
+        continue;
+      }
+    }
+    if (text.startsWith("***", i)) {
+      const end = text.indexOf("***", i + 3);
+      if (end !== -1) {
+        flush();
+        nodes.push(
+          <span key={`${keyPrefix}-bi${k++}`}>
+            <span className={DIM}>***</span>
+            <strong className="font-bold italic">{renderMentionRuns(text.slice(i + 3, end), members, meId, `${keyPrefix}-bii${k}`)}</strong>
+            <span className={DIM}>***</span>
+          </span>
+        );
+        i = end + 3;
+        continue;
+      }
+    }
+    if (text.startsWith("**", i)) {
+      const end = text.indexOf("**", i + 2);
+      if (end !== -1) {
+        flush();
+        nodes.push(
+          <span key={`${keyPrefix}-b${k++}`}>
+            <span className={DIM}>**</span>
+            <strong className="font-bold">{renderMentionRuns(text.slice(i + 2, end), members, meId, `${keyPrefix}-bb${k}`)}</strong>
+            <span className={DIM}>**</span>
+          </span>
+        );
+        i = end + 2;
+        continue;
+      }
+    }
+    if (text[i] === "*" && !text.startsWith("**", i)) {
+      const end = text.indexOf("*", i + 1);
+      if (end !== -1 && !text.startsWith("**", end)) {
+        flush();
+        nodes.push(
+          <span key={`${keyPrefix}-i${k++}`}>
+            <span className={DIM}>*</span>
+            <em className="italic">{renderMentionRuns(text.slice(i + 1, end), members, meId, `${keyPrefix}-ii${k}`)}</em>
+            <span className={DIM}>*</span>
+          </span>
+        );
+        i = end + 1;
+        continue;
+      }
+    }
+    if (text.startsWith("==", i)) {
+      const end = text.indexOf("==", i + 2);
+      if (end !== -1) {
+        flush();
+        nodes.push(
+          <span key={`${keyPrefix}-h${k++}`}>
+            <span className={DIM}>==</span>
+            <mark className="bg-yellow-300/80 text-zinc-900 rounded px-0.5">{renderMentionRuns(text.slice(i + 2, end), members, meId, `${keyPrefix}-hh${k}`)}</mark>
+            <span className={DIM}>==</span>
+          </span>
+        );
+        i = end + 2;
+        continue;
+      }
+    }
+    buf += text[i];
+    i++;
+  }
+  flush();
+  return nodes;
+}
+
+/**
+ * 入力エリアのオーバーレイ表示用。
+ * 元テキストの文字・改行・折り返しを一切変えず、装飾だけを重ねる。
+ * 見出しは太字＋濃色、記号（# / - / ---）は薄色で表示する。
+ */
+export function renderComposerMessage(text: string, members: Member[], meId: string): ReactNode {
+  const lines = (text ?? "").split("\n");
+  return (
+    <>
+      {lines.map((line, li) => {
+        const t = line.trim();
+        let content: ReactNode;
+        const hm = t.match(/^(#{1,3})\s+(.*)$/);
+        if (hm) {
+          const lead = line.indexOf(hm[1]);
+          content = (
+            <>
+              {line.slice(0, lead)}
+              <span className={DIM}>{hm[1]} </span>
+              <strong className="font-bold text-gray-900">{renderComposerInline(hm[2], members, meId, `h${li}`)}</strong>
+            </>
+          );
+        } else if (HR.test(t)) {
+          content = <span className={DIM}>{line}</span>;
+        } else {
+          const lm = line.match(/^(\s*)([-*]|\d+\.)(\s+)(.*)$/);
+          if (lm) {
+            content = (
+              <>
+                {lm[1]}
+                <span className={DIM}>{lm[2]}{lm[3]}</span>
+                {renderComposerInline(lm[4], members, meId, `l${li}`)}
+              </>
+            );
+          } else {
+            content = renderComposerInline(line, members, meId, `p${li}`);
+          }
+        }
+        return (
+          <span key={li}>
+            {li > 0 && "\n"}
+            {content}
+          </span>
+        );
+      })}
+    </>
+  );
 }
