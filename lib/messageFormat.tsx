@@ -1,9 +1,25 @@
 "use client";
 
 import { segmentMentions, ALL_MENTION_ID } from "@/lib/mentions";
-import type { ReactNode } from "react";
+import { sanitizeSpanStyle } from "@/lib/richText";
+import type { CSSProperties, ReactNode } from "react";
 
 type Member = { id: string; name: string };
+
+// sanitize済みstyle文字列をReactのstyleオブジェクトに変換
+function spanStyleObject(style: string): CSSProperties {
+  const obj: CSSProperties = {};
+  for (const part of style.split(";")) {
+    const idx = part.indexOf(":");
+    if (idx === -1) continue;
+    const prop = part.slice(0, idx).trim();
+    const val = part.slice(idx + 1).trim();
+    if (prop === "color") obj.color = val;
+    else if (prop === "background-color") obj.backgroundColor = val;
+    else if (prop === "font-size") obj.fontSize = val;
+  }
+  return obj;
+}
 
 // メンション（@名前）をハイライト表示するインライン要素を生成
 function renderMentionRuns(text: string, members: Member[], meId: string, keyPrefix: string): ReactNode[] {
@@ -44,6 +60,57 @@ function renderInline(text: string, members: Member[], meId: string, keyPrefix: 
     }
   };
   while (i < text.length) {
+    // <span style="...">...</span>（sanitize済みのスタイルのみ適用）
+    if (text.startsWith('<span style="', i)) {
+      const m = text.slice(i).match(/^<span style="([^"]*)">/);
+      if (m) {
+        const end = text.indexOf("</span>", i + m[0].length);
+        if (end !== -1) {
+          flush();
+          const inner = text.slice(i + m[0].length, end);
+          const safe = sanitizeSpanStyle(m[1]);
+          if (safe) {
+            nodes.push(
+              <span key={`${keyPrefix}-sp${k++}`} style={spanStyleObject(safe)}>
+                {renderInline(inner, members, meId, `${keyPrefix}-spi${k}`)}
+              </span>
+            );
+          } else {
+            nodes.push(...renderInline(inner, members, meId, `${keyPrefix}-spp${k++}`));
+          }
+          i = end + "</span>".length;
+          continue;
+        }
+      }
+    }
+    // <u>下線</u>
+    if (text.startsWith("<u>", i)) {
+      const end = text.indexOf("</u>", i + 3);
+      if (end !== -1) {
+        flush();
+        nodes.push(
+          <u key={`${keyPrefix}-u${k++}`}>
+            {renderInline(text.slice(i + 3, end), members, meId, `${keyPrefix}-ui${k}`)}
+          </u>
+        );
+        i = end + 4;
+        continue;
+      }
+    }
+    // <s>取り消し線</s>
+    if (text.startsWith("<s>", i)) {
+      const end = text.indexOf("</s>", i + 3);
+      if (end !== -1) {
+        flush();
+        nodes.push(
+          <s key={`${keyPrefix}-s${k++}`}>
+            {renderInline(text.slice(i + 3, end), members, meId, `${keyPrefix}-si${k}`)}
+          </s>
+        );
+        i = end + 4;
+        continue;
+      }
+    }
     // インラインコード: `code`
     if (text[i] === "`") {
       const end = text.indexOf("`", i + 1);

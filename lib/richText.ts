@@ -4,6 +4,14 @@
  * リッチテキスト入力（contentEditable）用の変換ユーティリティ。
  * 内部データは従来の Markdown-lite 文字列のまま保持し、
  * エディタ上では装飾済みHTMLとして表示・編集する。
+ *
+ * 拡張記法:
+ *   **太字** / *斜体* / ==マーカー== / `コード`
+ *   <u>下線</u> / <s>取り消し線</s>
+ *   <span style="color: ...">文字色</span>
+ *   <span style="background-color: ...">ハイライト</span>
+ *   <span style="font-size: ...">文字サイズ</span>
+ * span の style は sanitizeSpanStyle でホワイトリスト検証する（XSS対策）。
  */
 
 const HR = /^(-{3,}|\*{3,}|_{3,})$/;
@@ -17,53 +25,112 @@ export function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-/** インライン記法（**太字** / *斜体* / ==マーカー== / `コード`）をHTMLに変換 */
+const COLOR_RE = /^(#[0-9a-fA-F]{3,8}|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(\s*,\s*[\d.]+\s*)?\))$/;
+const SIZE_RE = /^(xx-small|x-small|small|medium|large|x-large|xx-large|larger|smaller|[\d.]+(px|em|rem|pt|%))$/;
+
+/** style 文字列をホワイトリスト（color / background-color / font-size のみ）に制限 */
+export function sanitizeSpanStyle(style: string): string {
+  const out: string[] = [];
+  for (const part of style.split(";")) {
+    const idx = part.indexOf(":");
+    if (idx === -1) continue;
+    const prop = part.slice(0, idx).trim().toLowerCase();
+    const val = part.slice(idx + 1).trim();
+    if ((prop === "color" || prop === "background-color") && COLOR_RE.test(val)) {
+      out.push(`${prop}: ${val}`);
+    } else if (prop === "font-size" && SIZE_RE.test(val)) {
+      out.push(`font-size: ${val}`);
+    }
+  }
+  return out.join("; ");
+}
+
+const SPAN_OPEN_RE = /^<span style="([^"]*)">/;
+
+/**
+ * インライン記法をHTMLに変換。
+ * Markdown記法に加えて <u> / <s> / <span style="..."> のホワイトリスト済みHTMLタグも解釈する。
+ * テキスト部分はすべてHTMLエスケープされる。
+ */
 export function inlineToHtml(raw: string): string {
-  const text = escapeHtml(raw);
   let out = "";
   let i = 0;
-  while (i < text.length) {
-    if (text[i] === "`") {
-      const e = text.indexOf("`", i + 1);
+  while (i < raw.length) {
+    // <span style="...">...</span>
+    if (raw.startsWith('<span style="', i)) {
+      const m = raw.slice(i).match(SPAN_OPEN_RE);
+      if (m) {
+        const end = raw.indexOf("</span>", i + m[0].length);
+        if (end !== -1) {
+          const inner = raw.slice(i + m[0].length, end);
+          const safe = sanitizeSpanStyle(m[1]);
+          out += safe
+            ? `<span style="${escapeHtml(safe)}">${inlineToHtml(inner)}</span>`
+            : inlineToHtml(inner);
+          i = end + "</span>".length;
+          continue;
+        }
+      }
+    }
+    // <u>...</u>
+    if (raw.startsWith("<u>", i)) {
+      const end = raw.indexOf("</u>", i + 3);
+      if (end !== -1) {
+        out += `<u>${inlineToHtml(raw.slice(i + 3, end))}</u>`;
+        i = end + 4;
+        continue;
+      }
+    }
+    // <s>...</s>
+    if (raw.startsWith("<s>", i)) {
+      const end = raw.indexOf("</s>", i + 3);
+      if (end !== -1) {
+        out += `<s>${inlineToHtml(raw.slice(i + 3, end))}</s>`;
+        i = end + 4;
+        continue;
+      }
+    }
+    if (raw[i] === "`") {
+      const e = raw.indexOf("`", i + 1);
       if (e !== -1) {
-        out += `<code>${text.slice(i + 1, e)}</code>`;
+        out += `<code>${escapeHtml(raw.slice(i + 1, e))}</code>`;
         i = e + 1;
         continue;
       }
     }
-    if (text.startsWith("***", i)) {
-      const e = text.indexOf("***", i + 3);
+    if (raw.startsWith("***", i)) {
+      const e = raw.indexOf("***", i + 3);
       if (e !== -1) {
-        out += `<strong><em>${text.slice(i + 3, e)}</em></strong>`;
+        out += `<strong><em>${inlineToHtml(raw.slice(i + 3, e))}</em></strong>`;
         i = e + 3;
         continue;
       }
     }
-    if (text.startsWith("**", i)) {
-      const e = text.indexOf("**", i + 2);
+    if (raw.startsWith("**", i)) {
+      const e = raw.indexOf("**", i + 2);
       if (e !== -1) {
-        out += `<strong>${text.slice(i + 2, e)}</strong>`;
+        out += `<strong>${inlineToHtml(raw.slice(i + 2, e))}</strong>`;
         i = e + 2;
         continue;
       }
     }
-    if (text[i] === "*" && !text.startsWith("**", i)) {
-      const e = text.indexOf("*", i + 1);
-      if (e !== -1 && !text.startsWith("**", e)) {
-        out += `<em>${text.slice(i + 1, e)}</em>`;
+    if (raw[i] === "*" && !raw.startsWith("**", i)) {
+      const e = raw.indexOf("*", i + 1);
+      if (e !== -1 && !raw.startsWith("**", e)) {
+        out += `<em>${inlineToHtml(raw.slice(i + 1, e))}</em>`;
         i = e + 1;
         continue;
       }
     }
-    if (text.startsWith("==", i)) {
-      const e = text.indexOf("==", i + 2);
+    if (raw.startsWith("==", i)) {
+      const e = raw.indexOf("==", i + 2);
       if (e !== -1) {
-        out += `<mark>${text.slice(i + 2, e)}</mark>`;
+        out += `<mark>${inlineToHtml(raw.slice(i + 2, e))}</mark>`;
         i = e + 2;
         continue;
       }
     }
-    out += text[i];
+    out += escapeHtml(raw[i]);
     i++;
   }
   return out;
@@ -132,6 +199,9 @@ export function markdownToHtml(md: string): string {
 
 // ---- DOM → Markdown 変換（エディタ入力のシリアライズ） ----
 
+// エディタ既定色（「自動」適用時の色）はシリアライズしない
+const DEFAULT_COLOR_RE = /rgb\(\s*31\s*,\s*41\s*,\s*55\s*\)/;
+
 function inlineMd(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
   if (!(node instanceof HTMLElement)) return "";
@@ -140,15 +210,33 @@ function inlineMd(node: Node): string {
   const inner = Array.from(node.childNodes).map(inlineMd).join("");
   if (tag === "b" || tag === "strong") return `**${inner}**`;
   if (tag === "i" || tag === "em") return `*${inner}*`;
+  if (tag === "u") return `<u>${inner}</u>`;
+  if (tag === "s" || tag === "strike" || tag === "del") return `<s>${inner}</s>`;
   if (tag === "mark") return `==${inner}==`;
   if (tag === "code") return `\`${inner}\``;
   if (tag === "span" || tag === "font") {
-    const fw = node.style.fontWeight;
-    const fs = node.style.fontStyle;
-    const bg = node.style.backgroundColor;
     let s = inner;
-    if (bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") s = `==${s}==`;
-    if (fs === "italic") s = `*${s}*`;
+    const styles: string[] = [];
+    const color = node.style.color || (tag === "font" ? (node as HTMLFontElement).color : "");
+    const bg = node.style.backgroundColor;
+    const fs = node.style.fontSize;
+    if (bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") {
+      styles.push(`background-color: ${bg}`);
+    }
+    if (color && !DEFAULT_COLOR_RE.test(color)) {
+      styles.push(`color: ${color}`);
+    }
+    if (fs && fs !== "medium") {
+      styles.push(`font-size: ${fs}`);
+    }
+    if (styles.length > 0) {
+      s = `<span style="${styles.join("; ")}">${s}</span>`;
+    }
+    const td = node.style.textDecoration || "";
+    if (td.includes("line-through")) s = `<s>${s}</s>`;
+    if (td.includes("underline")) s = `<u>${s}</u>`;
+    if (node.style.fontStyle === "italic") s = `*${s}*`;
+    const fw = node.style.fontWeight;
     if (fw === "bold" || Number(fw) >= 600) s = `**${s}**`;
     return s;
   }

@@ -3,16 +3,48 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ClipboardEvent } from "react";
 import { markdownToHtml, domToMarkdown } from "@/lib/richText";
 import { ALL_MENTION_ID, ALL_MENTION_NAME } from "@/lib/mentions";
+import {
+  Bold,
+  Italic,
+  Underline,
+  Strikethrough,
+  List,
+  ListOrdered,
+  Highlighter,
+  Baseline,
+  ALargeSmall,
+  Minus,
+} from "lucide-react";
 
 type Member = { id: string; name: string };
 
 /** 「@全員」仮想メンバー */
 const ALL_MEMBER: Member = { id: ALL_MENTION_ID, name: ALL_MENTION_NAME };
 
+/** ハイライト色パレット（背景色） */
+const HIGHLIGHT_COLORS = [
+  "#fda4af", "#fdba74", "#fde047", "#bef264",
+  "#86efac", "#5eead4", "#93c5fd", "#d8b4fe",
+];
+
+/** 文字色パレット */
+const FONT_COLORS = [
+  "#e11d48", "#ea580c", "#ca8a04", "#65a30d",
+  "#16a34a", "#0d9488", "#2563eb", "#9333ea",
+];
+
+/** 文字サイズ（execCommand fontSize 1-7） */
+const FONT_SIZES = [
+  { label: "Large", size: "5" },
+  { label: "Medium", size: "4" },
+  { label: "Small", size: "2" },
+] as const;
+
 /**
- * リッチテキスト入力エディタ（contentEditable）。
+ * リッチテキスト入力エディタ（contentEditable / Slack風ツールバー）。
  * 内部データは Markdown-lite 文字列のままやり取りし、表示は装飾済みHTML。
- * 太字・見出し・マーカー・リスト・水平線が入力中にそのまま視覚反映される。
+ * B/I/U/S・箇条書き・番号リスト・ハイライト色・文字色・文字サイズ・水平線が
+ * 入力中にそのまま視覚反映される。
  * 「@」でメンション候補を表示し、選択すると表示名を挿入する。
  */
 export default function MentionTextarea({
@@ -49,6 +81,8 @@ export default function MentionTextarea({
   const [query, setQuery] = useState("");
   const [atIndex, setAtIndex] = useState(-1);
   const [active, setActive] = useState(0);
+  const [popup, setPopup] = useState<"highlight" | "color" | "size" | null>(null);
+  const savedRange = useRef<Range | null>(null);
 
   const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
 
@@ -204,25 +238,55 @@ export default function MentionTextarea({
   };
 
   // ---- 書式ツールバー操作（WYSIWYG: 選択範囲に直接適用） ----
+  // ポップアップを開く前に選択範囲を保存（ポップアップ操作でフォーカスが外れるため）
+  const saveSelection = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && ref.current?.contains(sel.getRangeAt(0).startContainer)) {
+      savedRange.current = sel.getRangeAt(0).cloneRange();
+    }
+  };
+
+  const restoreSelection = () => {
+    ref.current?.focus();
+    if (savedRange.current) {
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(savedRange.current);
+    }
+  };
+
   const exec = (command: string, arg?: string) => {
     ref.current?.focus();
     document.execCommand(command, false, arg);
     serialize();
   };
 
-  const applyHeading = (tag: "h1" | "h2") => {
-    ref.current?.focus();
-    const current = document.queryCommandValue("formatBlock");
-    document.execCommand("formatBlock", false, current === tag ? "div" : tag);
+  const applyHighlight = (color: string | null) => {
+    restoreSelection();
+    document.execCommand("styleWithCSS", false, "true");
+    document.execCommand("hiliteColor", false, color ?? "transparent");
+    saveSelection();
     serialize();
+    setPopup(null);
   };
 
-  const applyMarker = () => {
-    ref.current?.focus();
-    const current = document.queryCommandValue("backColor");
-    const isMarked = /253|254|255,\s*2|yellow/i.test(String(current));
-    document.execCommand("hiliteColor", false, isMarked ? "transparent" : "#fde047");
+  const applyFontColor = (color: string | null) => {
+    restoreSelection();
+    document.execCommand("styleWithCSS", false, "true");
+    // 自動 = エディタ既定色（#1f2937）。シリアライズ時に既定色は除去される。
+    document.execCommand("foreColor", false, color ?? "#1f2937");
+    saveSelection();
     serialize();
+    setPopup(null);
+  };
+
+  const applyFontSize = (size: string) => {
+    restoreSelection();
+    document.execCommand("styleWithCSS", false, "true");
+    document.execCommand("fontSize", false, size);
+    saveSelection();
+    serialize();
+    setPopup(null);
   };
 
   const insertHr = () => {
@@ -254,32 +318,131 @@ export default function MentionTextarea({
     }
   };
 
+  const iconBtn =
+    "w-7 h-7 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-200 hover:text-gray-800 transition";
+  const togglePopup = (p: "highlight" | "color" | "size") => {
+    saveSelection();
+    setPopup((cur) => (cur === p ? null : p));
+  };
+
   return (
     <div className="relative flex-1 min-w-0">
       {showToolbar && (
-        <div className="mb-1.5 flex flex-wrap items-center gap-1">
-          {[
-            { label: "見出し大", title: "見出し（大）", fn: () => applyHeading("h1"), cls: "border-zinc-700 bg-zinc-800 text-zinc-200 text-sm font-bold hover:border-emerald-500 hover:text-white" },
-            { label: "見出し中", title: "小見出し（中）", fn: () => applyHeading("h2"), cls: "border-zinc-700 bg-zinc-800 text-zinc-200 text-xs font-bold hover:border-emerald-500 hover:text-white" },
-            { label: "B", title: "太字", fn: () => exec("bold"), cls: "border-zinc-700 bg-zinc-800 text-zinc-200 text-xs font-bold hover:border-emerald-500 hover:text-white" },
-            { label: "マーカー", title: "マーカー（ハイライト）", fn: applyMarker, cls: "border-yellow-400 bg-yellow-300 text-zinc-900 text-xs hover:bg-yellow-200" },
-            { label: "1.", title: "番号リスト", fn: () => exec("insertOrderedList"), cls: "border-zinc-700 bg-zinc-800 text-zinc-200 text-xs hover:border-emerald-500 hover:text-white" },
-            { label: "•", title: "箇条書き", fn: () => exec("insertUnorderedList"), cls: "border-zinc-700 bg-zinc-800 text-zinc-200 text-xs hover:border-emerald-500 hover:text-white" },
-            { label: "─", title: "水平線", fn: insertHr, cls: "border-zinc-700 bg-zinc-800 text-zinc-200 text-xs hover:border-emerald-500 hover:text-white" },
-          ].map((b) => (
-            <button
-              key={b.title}
-              type="button"
-              title={b.title}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                b.fn();
-              }}
-              className={`min-w-7 h-7 px-2 rounded-md border transition ${b.cls}`}
-            >
-              {b.label}
-            </button>
-          ))}
+        <div className="relative mb-1.5 flex items-center gap-0.5 rounded-lg border border-gray-300 bg-white px-1.5 py-1 w-fit">
+          <button type="button" title="太字（⌘B）" onMouseDown={(e) => { e.preventDefault(); exec("bold"); }} className={iconBtn}>
+            <Bold size={15} strokeWidth={2.5} />
+          </button>
+          <button type="button" title="斜体（⌘I）" onMouseDown={(e) => { e.preventDefault(); exec("italic"); }} className={iconBtn}>
+            <Italic size={15} />
+          </button>
+          <button type="button" title="下線（⌘U）" onMouseDown={(e) => { e.preventDefault(); exec("underline"); }} className={iconBtn}>
+            <Underline size={15} />
+          </button>
+          <button type="button" title="取り消し線" onMouseDown={(e) => { e.preventDefault(); exec("strikeThrough"); }} className={iconBtn}>
+            <Strikethrough size={15} />
+          </button>
+          <span className="mx-1 h-4 w-px bg-gray-300" />
+          <button type="button" title="箇条書き" onMouseDown={(e) => { e.preventDefault(); exec("insertUnorderedList"); }} className={iconBtn}>
+            <List size={15} />
+          </button>
+          <button type="button" title="番号付きリスト" onMouseDown={(e) => { e.preventDefault(); exec("insertOrderedList"); }} className={iconBtn}>
+            <ListOrdered size={15} />
+          </button>
+          <span className="mx-1 h-4 w-px bg-gray-300" />
+          <button
+            type="button"
+            title="ハイライト色"
+            onMouseDown={(e) => { e.preventDefault(); togglePopup("highlight"); }}
+            className={`${iconBtn} ${popup === "highlight" ? "bg-gray-200 text-gray-800" : ""}`}
+          >
+            <Highlighter size={15} />
+          </button>
+          <button
+            type="button"
+            title="文字色"
+            onMouseDown={(e) => { e.preventDefault(); togglePopup("color"); }}
+            className={`${iconBtn} ${popup === "color" ? "bg-gray-200 text-gray-800" : ""}`}
+          >
+            <Baseline size={15} />
+          </button>
+          <button
+            type="button"
+            title="文字サイズ"
+            onMouseDown={(e) => { e.preventDefault(); togglePopup("size"); }}
+            className={`${iconBtn} ${popup === "size" ? "bg-gray-200 text-gray-800" : ""}`}
+          >
+            <ALargeSmall size={15} />
+          </button>
+          <span className="mx-1 h-4 w-px bg-gray-300" />
+          <button type="button" title="水平線" onMouseDown={(e) => { e.preventDefault(); insertHr(); }} className={iconBtn}>
+            <Minus size={15} />
+          </button>
+
+          {/* ハイライト色パレット */}
+          {popup === "highlight" && (
+            <div className="absolute left-0 top-full mt-1 z-50 rounded-lg border border-gray-300 bg-white shadow-xl p-2 w-40">
+              <button
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); applyHighlight(null); }}
+                className="w-full mb-1.5 rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+              >
+                ハイライトなし
+              </button>
+              <div className="grid grid-cols-4 gap-1.5">
+                {HIGHLIGHT_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    title={c}
+                    onMouseDown={(e) => { e.preventDefault(); applyHighlight(c); }}
+                    className="w-7 h-7 rounded-md border border-black/10 hover:scale-110 transition"
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 文字色パレット */}
+          {popup === "color" && (
+            <div className="absolute left-0 top-full mt-1 z-50 rounded-lg border border-gray-300 bg-white shadow-xl p-2 w-40">
+              <button
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); applyFontColor(null); }}
+                className="w-full mb-1.5 rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+              >
+                自動
+              </button>
+              <div className="grid grid-cols-4 gap-1.5">
+                {FONT_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    title={c}
+                    onMouseDown={(e) => { e.preventDefault(); applyFontColor(c); }}
+                    className="w-7 h-7 rounded-md border border-black/10 hover:scale-110 transition"
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 文字サイズ */}
+          {popup === "size" && (
+            <div className="absolute left-0 top-full mt-1 z-50 rounded-lg border border-gray-300 bg-white shadow-xl py-1 w-28">
+              {FONT_SIZES.map((s) => (
+                <button
+                  key={s.size}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); applyFontSize(s.size); }}
+                  className="w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
       <div
