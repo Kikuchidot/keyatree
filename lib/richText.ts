@@ -217,46 +217,54 @@ function wrapPerLine(pre: string, post: string, inner: string): string {
     .join("\n");
 }
 
+/** 要素のインラインstyleから装飾を抽出してマークダウン記法で包む（span以外の要素にも適用） */
+function applyInlineStyles(s: string, node: HTMLElement): string {
+  if (s === "") return s;
+  const styles: string[] = [];
+  const color = node.style.color || (node.tagName.toLowerCase() === "font" ? (node as HTMLFontElement).color : "");
+  const bg = node.style.backgroundColor;
+  const fs = node.style.fontSize;
+  if (bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") {
+    styles.push(`background-color: ${bg}`);
+  }
+  if (color && !DEFAULT_COLOR_RE.test(color)) {
+    styles.push(`color: ${color}`);
+  }
+  if (fs && fs !== "medium") {
+    styles.push(`font-size: ${fs}`);
+  }
+  if (styles.length > 0) {
+    s = wrapPerLine(`<span style="${styles.join("; ")}">`, "</span>", s);
+  }
+  // Chromeは text-decoration-line を使うため両方確認する
+  const td = `${node.style.textDecoration} ${node.style.textDecorationLine}`;
+  if (td.includes("line-through")) s = wrapPerLine("<s>", "</s>", s);
+  if (td.includes("underline")) s = wrapPerLine("<u>", "</u>", s);
+  if (node.style.fontStyle === "italic") s = wrapPerLine("*", "*", s);
+  const fw = node.style.fontWeight;
+  if (fw === "bold" || Number(fw) >= 600) s = wrapPerLine("**", "**", s);
+  return s;
+}
+
 function inlineMd(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
   if (!(node instanceof HTMLElement)) return "";
   const tag = node.tagName.toLowerCase();
   if (tag === "br") return "\n";
   const inner = Array.from(node.childNodes).map(inlineMd).join("");
-  if (tag === "b" || tag === "strong") return wrapPerLine("**", "**", inner);
-  if (tag === "i" || tag === "em") return wrapPerLine("*", "*", inner);
-  if (tag === "u") return wrapPerLine("<u>", "</u>", inner);
-  if (tag === "s" || tag === "strike" || tag === "del") return wrapPerLine("<s>", "</s>", inner);
-  if (tag === "mark") return wrapPerLine("==", "==", inner);
-  if (tag === "code") return wrapPerLine("`", "`", inner);
   if (tag === "div" || tag === "p") return inner === "" ? "" : `${inner}\n`;
-  if (tag === "span" || tag === "font") {
-    let s = inner;
-    const styles: string[] = [];
-    const color = node.style.color || (tag === "font" ? (node as HTMLFontElement).color : "");
-    const bg = node.style.backgroundColor;
-    const fs = node.style.fontSize;
-    if (bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") {
-      styles.push(`background-color: ${bg}`);
-    }
-    if (color && !DEFAULT_COLOR_RE.test(color)) {
-      styles.push(`color: ${color}`);
-    }
-    if (fs && fs !== "medium") {
-      styles.push(`font-size: ${fs}`);
-    }
-    if (styles.length > 0) {
-      s = wrapPerLine(`<span style="${styles.join("; ")}">`, "</span>", s);
-    }
-    const td = node.style.textDecoration || "";
-    if (td.includes("line-through")) s = wrapPerLine("<s>", "</s>", s);
-    if (td.includes("underline")) s = wrapPerLine("<u>", "</u>", s);
-    if (node.style.fontStyle === "italic") s = wrapPerLine("*", "*", s);
-    const fw = node.style.fontWeight;
-    if (fw === "bold" || Number(fw) >= 600) s = wrapPerLine("**", "**", s);
-    return s;
-  }
-  return inner;
+  // タグ由来の装飾
+  let s: string;
+  if (tag === "b" || tag === "strong") s = wrapPerLine("**", "**", inner);
+  else if (tag === "i" || tag === "em") s = wrapPerLine("*", "*", inner);
+  else if (tag === "u") s = wrapPerLine("<u>", "</u>", inner);
+  else if (tag === "s" || tag === "strike" || tag === "del") s = wrapPerLine("<s>", "</s>", inner);
+  else if (tag === "mark") s = wrapPerLine("==", "==", inner);
+  else if (tag === "code") s = wrapPerLine("`", "`", inner);
+  else s = inner;
+  // style属性由来の装飾（Chromeは <u style="background-color:..."> のように
+  // span以外の要素へ直接スタイルを付けることがある）
+  return applyInlineStyles(s, node);
 }
 
 function inlineChildrenMd(el: HTMLElement): string {
