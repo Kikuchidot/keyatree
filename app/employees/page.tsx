@@ -20,6 +20,7 @@ export default function EmployeeListPage() {
   const [rank, setRank] = useState("すべて");
   const [allEmployees, setAllEmployees] = useState<Employee[]>(employees);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState("");
 
   const teamOptions = useMemo(
@@ -87,6 +88,26 @@ export default function EmployeeListPage() {
       setUploadError((e as Error).message || "アップロードに失敗しました");
     } finally {
       setUploadingId(null);
+    }
+  }
+
+  async function handleDeletePhoto(emp: Employee) {
+    if (!window.confirm(`${emp.name} さんの写真を削除しますか？`)) return;
+    setUploadError("");
+    setDeletingId(emp.id);
+    try {
+      const updated: Employee = { ...emp, photo: "" };
+      const res = await fetch("/api/staff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee: updated }),
+      });
+      if (!res.ok) throw new Error("削除に失敗しました");
+      setAllEmployees((prev) => prev.map((e) => (e.id === emp.id ? updated : e)));
+    } catch (e) {
+      setUploadError((e as Error).message || "写真の削除に失敗しました");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -205,6 +226,21 @@ export default function EmployeeListPage() {
                             }}
                           />
                         </label>
+                        {emp.photo && (
+                          <button
+                            type="button"
+                            title="写真を削除"
+                            disabled={deletingId === emp.id}
+                            onClick={() => handleDeletePhoto(emp)}
+                            className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center cursor-pointer shadow ring-2 ring-white transition disabled:opacity-60"
+                          >
+                            {deletingId === emp.id ? (
+                              <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <span className="text-xs font-bold leading-none">&times;</span>
+                            )}
+                          </button>
+                        )}
                       </div>
 
                       {/* 基本情報 */}
