@@ -202,18 +202,34 @@ export function markdownToHtml(md: string): string {
 // エディタ既定色（「自動」適用時の色）はシリアライズしない
 const DEFAULT_COLOR_RE = /rgb\(\s*31\s*,\s*41\s*,\s*55\s*\)/;
 
+/**
+ * 装飾が改行をまたぐ場合（Chromeが複数行にまたがる装飾を1要素で生成する）、
+ * 行ごとに装飾を閉じて再度開く形式に正規化する。
+ * 表示側は行単位で解析するため、改行をまたぐ記法は崩れる。
+ * 例: "**a\nb**" → "**a**\n**b**"
+ */
+function wrapPerLine(pre: string, post: string, inner: string): string {
+  if (inner === "") return "";
+  if (!inner.includes("\n")) return `${pre}${inner}${post}`;
+  return inner
+    .split("\n")
+    .map((l) => (l === "" ? "" : `${pre}${l}${post}`))
+    .join("\n");
+}
+
 function inlineMd(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
   if (!(node instanceof HTMLElement)) return "";
   const tag = node.tagName.toLowerCase();
   if (tag === "br") return "\n";
   const inner = Array.from(node.childNodes).map(inlineMd).join("");
-  if (tag === "b" || tag === "strong") return `**${inner}**`;
-  if (tag === "i" || tag === "em") return `*${inner}*`;
-  if (tag === "u") return `<u>${inner}</u>`;
-  if (tag === "s" || tag === "strike" || tag === "del") return `<s>${inner}</s>`;
-  if (tag === "mark") return `==${inner}==`;
-  if (tag === "code") return `\`${inner}\``;
+  if (tag === "b" || tag === "strong") return wrapPerLine("**", "**", inner);
+  if (tag === "i" || tag === "em") return wrapPerLine("*", "*", inner);
+  if (tag === "u") return wrapPerLine("<u>", "</u>", inner);
+  if (tag === "s" || tag === "strike" || tag === "del") return wrapPerLine("<s>", "</s>", inner);
+  if (tag === "mark") return wrapPerLine("==", "==", inner);
+  if (tag === "code") return wrapPerLine("`", "`", inner);
+  if (tag === "div" || tag === "p") return inner === "" ? "" : `${inner}\n`;
   if (tag === "span" || tag === "font") {
     let s = inner;
     const styles: string[] = [];
@@ -230,14 +246,14 @@ function inlineMd(node: Node): string {
       styles.push(`font-size: ${fs}`);
     }
     if (styles.length > 0) {
-      s = `<span style="${styles.join("; ")}">${s}</span>`;
+      s = wrapPerLine(`<span style="${styles.join("; ")}">`, "</span>", s);
     }
     const td = node.style.textDecoration || "";
-    if (td.includes("line-through")) s = `<s>${s}</s>`;
-    if (td.includes("underline")) s = `<u>${s}</u>`;
-    if (node.style.fontStyle === "italic") s = `*${s}*`;
+    if (td.includes("line-through")) s = wrapPerLine("<s>", "</s>", s);
+    if (td.includes("underline")) s = wrapPerLine("<u>", "</u>", s);
+    if (node.style.fontStyle === "italic") s = wrapPerLine("*", "*", s);
     const fw = node.style.fontWeight;
-    if (fw === "bold" || Number(fw) >= 600) s = `**${s}**`;
+    if (fw === "bold" || Number(fw) >= 600) s = wrapPerLine("**", "**", s);
     return s;
   }
   return inner;
@@ -279,11 +295,11 @@ export function domToMarkdown(root: HTMLElement): string {
       return;
     }
     if (tag === "div" || tag === "p" || tag === "li" || tag === "blockquote") {
-      pushInline(inlineChildrenMd(node));
+      pushInline(inlineChildrenMd(node).replace(/\n+$/, ""));
       return;
     }
     // それ以外のインライン要素がトップレベルに来た場合
-    pushInline(inlineMd(node));
+    pushInline(inlineMd(node).replace(/\n+$/, ""));
   };
   Array.from(root.childNodes).forEach(walk);
   // 末尾の空行を除去
