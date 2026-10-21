@@ -1625,10 +1625,10 @@ function TalkView({
                           </div>
                           {!isReply && m.subject && <p className="text-[15px] font-bold text-gray-800 mt-0.5">{m.subject}</p>}
                           {renderQuote(m.quote, talk.id)}
+                          <AttachmentViewer attachments={m.attachments} messageId={m.id} isMine={mine} onDeleteAttachment={deleteAttachment} />
                           {m.text ? (
                             <div className="mt-0.5 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-800 break-words">{renderRichMessage(m.text, talk.members, meId)}</div>
                           ) : null}
-                          <AttachmentViewer attachments={m.attachments} messageId={m.id} isMine={mine} onDeleteAttachment={deleteAttachment} />
                           <div className="mt-1 flex items-center gap-2 flex-wrap">
                             {reactions.map((r) => (
                               <button
@@ -2974,12 +2974,12 @@ function DmView({
                       <span className="text-[13px] font-bold text-gray-800">{m.authorName}</span>
                       <span className="text-[11px] text-gray-500">{fmt(m.createdAt)}</span>
                     </div>
+                    <AttachmentViewer attachments={m.attachments} messageId={m.id} isMine={mine} onDeleteAttachment={deleteAttachment} />
                     {m.text && (
                       <div className="mt-0.5 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-800 break-words whitespace-pre-wrap">
                         {renderRichMessage(m.text, dmMembers, meId)}
                       </div>
                     )}
-                    <AttachmentViewer attachments={m.attachments} messageId={m.id} isMine={mine} onDeleteAttachment={deleteAttachment} />
                     <div className="mt-1 flex items-center gap-2 flex-wrap">
                       {reactions.map((r) => (
                         <button
