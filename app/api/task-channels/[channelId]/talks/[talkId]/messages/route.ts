@@ -8,6 +8,7 @@ import {
   listTalkMessages,
   addTalkMessage,
   toggleTalkReaction,
+  updateTalkMessageText,
 } from "@/lib/taskChannelStore";
 import { uploadAttachments } from "@/lib/attachmentStorage";
 
@@ -170,6 +171,39 @@ export async function POST(request: Request, ctx: Ctx) {
     // トークルームの updatedAt を更新（一覧の並びに反映）
     await saveTalk(talk);
     return NextResponse.json({ message });
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+  }
+}
+
+// ---- メッセージ編集 ----
+export async function PATCH(request: Request, ctx: Ctx) {
+  try {
+    const { channelId, talkId } = await ctx.params;
+    const auth = await authorize(channelId, talkId);
+    if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    const { session } = auth;
+
+    const body = await request.json();
+    const { messageId, text } = body as { messageId?: string; text?: string };
+    if (!messageId || typeof text !== "string") {
+      return NextResponse.json({ error: "messageId and text are required" }, { status: 400 });
+    }
+
+    // 自分のメッセージのみ編集可能
+    const messages = await listTalkMessages(talkId);
+    const target = messages.find((m) => m.id === messageId);
+    if (!target) return NextResponse.json({ error: "message not found" }, { status: 404 });
+
+    const meId = session!.employeeId || session!.id || "";
+    if (target.authorId !== meId) {
+      return NextResponse.json({ error: "自分のメッセージのみ編集できます" }, { status: 403 });
+    }
+
+    const updated = await updateTalkMessageText(talkId, messageId, text);
+    if (!updated) return NextResponse.json({ error: "update failed" }, { status: 500 });
+
+    return NextResponse.json({ message: updated });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

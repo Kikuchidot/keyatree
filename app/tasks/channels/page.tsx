@@ -46,6 +46,7 @@ type TalkMessage = {
   taskId?: string;
   taskTitle?: string;
   kind?: "message" | "system";
+  editedAt?: string;
 };
 
 type DmChannel = Channel & {
@@ -1259,6 +1260,9 @@ function TalkView({
   const [replyText, setReplyText] = useState("");
   const [replySending, setReplySending] = useState(false);
   const [replyAttachments, setReplyAttachments] = useState<TalkAttachmentT[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
   const mainFileInputRef = useRef<HTMLInputElement | null>(null);
   const replyFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -1427,6 +1431,30 @@ function TalkView({
     const res = await fetch(`/api/task-channels/${channel.id}/talks/${talk.id}/messages/${id}`, { method: "DELETE" });
     if (res.ok) setMessages((prev) => prev.filter((m) => m.id !== id));
     else alert("削除に失敗しました");
+  };
+
+  const startEdit = (m: TalkMessage) => { setEditingId(m.id); setEditingText(m.text); };
+  const cancelEdit = () => { setEditingId(null); setEditingText(""); };
+  const saveEdit = async () => {
+    if (!editingId || editSaving) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch(`/api/task-channels/${channel.id}/talks/${talk.id}/messages`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: editingId, text: editingText }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setMessages((prev) => prev.map((m) => m.id === editingId ? { ...m, ...d.message } : m));
+        cancelEdit();
+      } else {
+        const d = await res.json().catch(() => null);
+        alert(d?.error ?? "編集に失敗しました");
+      }
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   const deleteAttachment = async (messageId: string, attachIndex: number) => {
@@ -1622,11 +1650,33 @@ function TalkView({
                           <div className="flex items-center gap-2">
                             <span className={`${isReply ? "text-[13px]" : "text-sm"} font-bold text-gray-800`}>{m.authorName}</span>
                             <span className="text-[11px] text-gray-500">{fmt(m.createdAt)}</span>
+                            {m.editedAt && <span className="text-[10px] text-gray-400" title={`編集: ${fmt(m.editedAt)}`}>✏️ 編集済み {fmt(m.editedAt)}</span>}
                           </div>
                           {!isReply && m.subject && <p className="text-[15px] font-bold text-gray-800 mt-0.5">{m.subject}</p>}
                           {renderQuote(m.quote, talk.id)}
                           <AttachmentViewer attachments={m.attachments} messageId={m.id} isMine={mine} onDeleteAttachment={deleteAttachment} />
-                          {m.text ? (
+                          {editingId === m.id ? (
+                            <div className="mt-0.5">
+                              <textarea
+                                autoFocus
+                                value={editingText}
+                                onChange={(e) => setEditingText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Escape") cancelEdit();
+                                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") saveEdit();
+                                }}
+                                className="w-full rounded-lg border border-emerald-400 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none"
+                                rows={3}
+                              />
+                              <div className="mt-1 flex items-center gap-2">
+                                <button onClick={saveEdit} disabled={editSaving} className="text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600 px-3 py-1 rounded-lg transition disabled:opacity-50">
+                                  {editSaving ? "保存中..." : "保存"}
+                                </button>
+                                <button onClick={cancelEdit} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1">キャンセル</button>
+                                <span className="text-[10px] text-gray-400 ml-auto">⌘+Enter で保存 / Esc でキャンセル</span>
+                              </div>
+                            </div>
+                          ) : m.text ? (
                             <div className="mt-0.5 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-800 break-words">{renderRichMessage(m.text, talk.members, meId)}</div>
                           ) : null}
                           <div className="mt-1 flex items-center gap-2 flex-wrap">
@@ -1654,6 +1704,9 @@ function TalkView({
                                 <button onClick={() => openTaskFromMessage(m)} className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300">
                                   依頼（タスク）にする
                                 </button>
+                              )}
+                              {mine && m.text && (
+                                <button onClick={() => startEdit(m)} className="text-[11px] text-gray-500 hover:text-sky-400">編集</button>
                               )}
                               {(mine || canManage) && (
                                 <button onClick={() => deleteMessage(m.id)} className="text-[11px] text-gray-500 hover:text-rose-400">削除</button>
@@ -2813,6 +2866,9 @@ function DmView({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<TalkAttachmentT[]>([]);
+  const [dmEditingId, setDmEditingId] = useState<string | null>(null);
+  const [dmEditingText, setDmEditingText] = useState("");
+  const [dmEditSaving, setDmEditSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const dmMembers = [{ id: peer.id, name: peer.name }, ...(meName ? [{ id: meId, name: meName }] : [])];
@@ -2876,6 +2932,30 @@ function DmView({
     if (!confirm("このメッセージを削除しますか？")) return;
     const res = await fetch(`/api/dm-channels/${dmChannelId}/messages?messageId=${id}`, { method: "DELETE" });
     if (res.ok) setMessages((prev) => prev.filter((m) => m.id !== id));
+  };
+
+  const dmStartEdit = (m: TalkMessage) => { setDmEditingId(m.id); setDmEditingText(m.text); };
+  const dmCancelEdit = () => { setDmEditingId(null); setDmEditingText(""); };
+  const dmSaveEdit = async () => {
+    if (!dmEditingId || dmEditSaving) return;
+    setDmEditSaving(true);
+    try {
+      const res = await fetch(`/api/dm-channels/${dmChannelId}/messages`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: dmEditingId, text: dmEditingText }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setMessages((prev) => prev.map((m) => m.id === dmEditingId ? { ...m, ...d.message } : m));
+        dmCancelEdit();
+      } else {
+        const d = await res.json().catch(() => null);
+        alert(d?.error ?? "編集に失敗しました");
+      }
+    } finally {
+      setDmEditSaving(false);
+    }
   };
 
   const deleteAttachment = async (messageId: string, attachIndex: number) => {
@@ -2973,13 +3053,35 @@ function DmView({
                     <div className="flex items-center gap-2">
                       <span className="text-[13px] font-bold text-gray-800">{m.authorName}</span>
                       <span className="text-[11px] text-gray-500">{fmt(m.createdAt)}</span>
+                      {m.editedAt && <span className="text-[10px] text-gray-400" title={`編集: ${fmt(m.editedAt)}`}>✏️ 編集済み {fmt(m.editedAt)}</span>}
                     </div>
                     <AttachmentViewer attachments={m.attachments} messageId={m.id} isMine={mine} onDeleteAttachment={deleteAttachment} />
-                    {m.text && (
+                    {dmEditingId === m.id ? (
+                      <div className="mt-0.5">
+                        <textarea
+                          autoFocus
+                          value={dmEditingText}
+                          onChange={(e) => setDmEditingText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") dmCancelEdit();
+                            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") dmSaveEdit();
+                          }}
+                          className="w-full rounded-lg border border-indigo-400 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
+                          rows={3}
+                        />
+                        <div className="mt-1 flex items-center gap-2">
+                          <button onClick={dmSaveEdit} disabled={dmEditSaving} className="text-xs font-bold text-white bg-indigo-500 hover:bg-indigo-600 px-3 py-1 rounded-lg transition disabled:opacity-50">
+                            {dmEditSaving ? "保存中..." : "保存"}
+                          </button>
+                          <button onClick={dmCancelEdit} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1">キャンセル</button>
+                          <span className="text-[10px] text-gray-400 ml-auto">⌘+Enter で保存 / Esc でキャンセル</span>
+                        </div>
+                      </div>
+                    ) : m.text ? (
                       <div className="mt-0.5 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-800 break-words whitespace-pre-wrap">
                         {renderRichMessage(m.text, dmMembers, meId)}
                       </div>
-                    )}
+                    ) : null}
                     <div className="mt-1 flex items-center gap-2 flex-wrap">
                       {reactions.map((r) => (
                         <button
@@ -2996,6 +3098,7 @@ function DmView({
                       ))}
                       <span className="opacity-0 group-hover:opacity-100 transition flex items-center gap-2">
                         <button onClick={() => toggleReaction(m.id, "👍")} className="text-[12px] text-gray-500 hover:text-indigo-400" title="いいね">👍</button>
+                        {mine && m.text && <button onClick={() => dmStartEdit(m)} className="text-[11px] text-gray-500 hover:text-sky-400">編集</button>}
                         {mine && <button onClick={() => deleteMessage(m.id)} className="text-[11px] text-gray-500 hover:text-rose-400">削除</button>}
                       </span>
                     </div>

@@ -9,6 +9,7 @@ import {
   toggleTalkReaction,
   deleteTalkMessage,
   updateTalkMessageAttachments,
+  updateTalkMessageText,
 } from "@/lib/taskChannelStore";
 import { uploadAttachments } from "@/lib/attachmentStorage";
 
@@ -131,7 +132,7 @@ export async function DELETE(request: Request, ctx: Ctx) {
   }
 }
 
-// 添付ファイル削除 (PATCH: attachments の更新)
+// PATCH: 添付ファイル更新 or メッセージ本文編集
 export async function PATCH(request: Request, ctx: Ctx) {
   try {
     const { dmChannelId } = await ctx.params;
@@ -148,6 +149,14 @@ export async function PATCH(request: Request, ctx: Ctx) {
     if (target.authorId !== meId) {
       return NextResponse.json({ error: "自分のメッセージのみ編集できます" }, { status: 403 });
     }
+
+    // テキスト編集
+    if (typeof body.text === "string") {
+      const updated = await updateTalkMessageText(talk.id, messageId, body.text);
+      return NextResponse.json({ message: updated });
+    }
+
+    // 添付ファイル更新
     const attachments = Array.isArray(body.attachments) ? body.attachments : [];
     const updated = await updateTalkMessageAttachments(talk.id, messageId, attachments);
     return NextResponse.json({ message: updated });

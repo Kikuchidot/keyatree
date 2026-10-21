@@ -91,6 +91,8 @@ export type TalkMessage = {
   taskTitle?: string;
   // 種別: 通常投稿 or システム（依頼起票の告知など）
   kind?: "message" | "system";
+  // 編集済みの場合に編集日時を記録
+  editedAt?: string;
 };
 
 // 初期チャンネル（既存カテゴリと整合）
@@ -522,6 +524,30 @@ export async function updateTalkMessageAttachments(
 ): Promise<TalkMessage | null> {
   const apply = (list: TalkMessage[]) =>
     list.map((m) => (m.id === messageId ? { ...m, attachments } : m));
+  if (!isSupabaseEnabled()) {
+    const m = memory();
+    const arr = m.messages.get(talkId) ?? [];
+    const updated = apply(arr);
+    m.messages.set(talkId, updated);
+    return updated.find((x) => x.id === messageId) ?? null;
+  }
+  const supabase = getSupabaseAdmin();
+  await ensureBucket(supabase);
+  const list = (await getJson<TalkMessage[]>(supabase, messagePath(talkId))) ?? [];
+  const next = apply(list);
+  await putJson(supabase, messagePath(talkId), next);
+  return next.find((x) => x.id === messageId) ?? null;
+}
+
+// ---- メッセージ本文の編集 ----
+export async function updateTalkMessageText(
+  talkId: string,
+  messageId: string,
+  text: string,
+): Promise<TalkMessage | null> {
+  const editedAt = new Date().toISOString();
+  const apply = (list: TalkMessage[]) =>
+    list.map((m) => (m.id === messageId ? { ...m, text, editedAt } : m));
   if (!isSupabaseEnabled()) {
     const m = memory();
     const arr = m.messages.get(talkId) ?? [];
