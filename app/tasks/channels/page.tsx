@@ -9,7 +9,7 @@ import MentionTextarea from "@/components/tasks/MentionTextarea";
 import { extractMentions } from "@/lib/mentions";
 import { renderRichMessage } from "@/lib/messageFormat";
 import { resizeImageToDataUrl, fileToDataUrl } from "@/lib/clientImage";
-import { MOCK_EMPLOYEES, STATUS_CONFIG, formatDeadline, type FullTask } from "@/lib/taskStore";
+import { STATUS_CONFIG, formatDeadline, type FullTask } from "@/lib/taskStore";
 import { apiListTasks } from "@/lib/taskClient";
 import { reminderLevel, REMINDER_STYLE } from "@/lib/taskReminder";
 import { getClientSession, isAdminSession, sessionMemberId, type SessionInfo } from "@/lib/clientSession";
@@ -2619,6 +2619,13 @@ function CreateChannelModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const meId = session?.employeeId || session?.id || "";
+  const [staffList, setStaffList] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    fetch("/api/staff").then(r => r.json()).then(d => {
+      if (Array.isArray(d?.staff)) setStaffList(d.staff);
+    }).catch(() => {});
+  }, []);
 
   const submit = async () => {
     if (!name.trim()) {
@@ -2629,7 +2636,7 @@ function CreateChannelModal({
     setError("");
     try {
       const members = selected.map((id) => {
-        const emp = MOCK_EMPLOYEES.find((e) => e.id === id);
+        const emp = staffList.find((e) => e.id === id);
         return { id, name: emp?.name ?? id, role: "member" as const };
       });
       const res = await fetch("/api/task-channels", {
@@ -2679,7 +2686,7 @@ function CreateChannelModal({
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">参加メンバー</label>
             <p className="text-[11px] text-gray-400 mb-1">作成者（あなた）は自動で管理者として参加します。</p>
-            <MemberPicker selectedIds={selected} onChange={setSelected} excludeIds={meId ? [meId] : []} fallback={MOCK_EMPLOYEES} />
+            <MemberPicker selectedIds={selected} onChange={setSelected} excludeIds={meId ? [meId] : []} />
           </div>
           {error && <p className="text-xs text-rose-600 font-medium">{error}</p>}
         </div>

@@ -6,7 +6,7 @@ import Link from "next/link";
 import BackButton from "@/components/BackButton";
 import {
   getCategories, formatDeadline, toDateTimeLocal,
-  MOCK_EMPLOYEES, STATUS_CONFIG, PRIORITY_CONFIG,
+  STATUS_CONFIG, PRIORITY_CONFIG,
   type FullTask, type TaskStatus, type TaskMember, type TaskMessage, type TaskPriority, type TaskType,
 } from "@/lib/taskStore";
 import {
@@ -501,10 +501,14 @@ export default function TaskWorkspacePage() {
   const [showSearch, setShowSearch] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [staffList, setStaffList] = useState<{ id: string; name: string; department?: string }[]>([]);
 
   useEffect(() => {
     const s = getClientSession();
     setMe({ id: sessionMemberId(s) || "", name: s?.name || "" });
+    fetch("/api/staff").then(r => r.json()).then(d => {
+      if (Array.isArray(d?.staff)) setStaffList(d.staff);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -569,7 +573,7 @@ export default function TaskWorkspacePage() {
     if (updated) { setTask(updated); showToast(`ステータスを「${STATUS_CONFIG[status].label}」に変更しました`); }
   };
 
-  const handleInvite = async (emp: typeof MOCK_EMPLOYEES[number]) => {
+  const handleInvite = async (emp: { id: string; name: string }) => {
     if (!task) return;
     const member: TaskMember = { id: emp.id, name: emp.name, role: "assignee", joinedAt: new Date().toISOString() };
     const updated = await apiAddMember(task.id, member);
@@ -611,7 +615,7 @@ export default function TaskWorkspacePage() {
 
   const cfg = STATUS_CONFIG[task.status];
   const pri = PRIORITY_CONFIG[task.priority];
-  const notInvited = MOCK_EMPLOYEES.filter(e => !task.members.some(m => m.id === e.id));
+  const notInvited = staffList.filter(e => !task.members.some(m => m.id === e.id));
   const talkHref = task.channelId && task.talkId ? `/tasks/channels/${task.channelId}/talks/${task.talkId}` : null;
 
   return (

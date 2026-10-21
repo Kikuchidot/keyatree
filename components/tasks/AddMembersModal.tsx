@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import MemberPicker from "@/components/tasks/MemberPicker";
-import { MOCK_EMPLOYEES } from "@/lib/taskStore";
 
 export default function AddMembersModal({
   title,
@@ -19,8 +18,8 @@ export default function AddMembersModal({
 }) {
   const [selected, setSelected] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
-  // candidates が渡されない場合は、アカウント登録済みの全スタッフを候補にする。
-  const [source, setSource] = useState<{ id: string; name: string }[]>(candidates ?? MOCK_EMPLOYEES);
+  // candidates が渡されない場合は、/api/staff から取得する（MemberPicker 内で自動取得）
+  const [source, setSource] = useState<{ id: string; name: string }[]>(candidates ?? []);
 
   useEffect(() => {
     if (candidates) {
@@ -38,7 +37,7 @@ export default function AddMembersModal({
         }
       })
       .catch(() => {
-        /* keep fallback */
+        /* keep empty */
       });
     return () => {
       alive = false;
@@ -70,7 +69,6 @@ export default function AddMembersModal({
             onChange={setSelected}
             excludeIds={existingIds}
             candidates={candidates}
-            fallback={MOCK_EMPLOYEES}
           />
         </div>
         <div className="px-5 pb-5 flex gap-2 justify-end">

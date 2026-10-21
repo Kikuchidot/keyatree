@@ -42,12 +42,11 @@ export default function MemberPicker({
         const staff = (d?.staff ?? []) as { id: string; name: string; department?: string; team?: string }[];
         if (Array.isArray(staff) && staff.length > 0) {
           setMembers(staff.map((s) => ({ id: s.id, name: s.name, department: s.department, team: s.team })));
-        } else if (fallback.length > 0) {
-          setMembers(fallback);
         }
+        // API が空の場合は空リストのままにする（サンプルデータを表示しない）
       })
       .catch(() => {
-        if (alive && fallback.length > 0) setMembers(fallback);
+        // エラー時もサンプルデータを表示しない
       })
       .finally(() => {
         if (alive) setLoading(false);
