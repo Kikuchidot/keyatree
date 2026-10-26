@@ -81,6 +81,13 @@ def env(base_url):
         )
         assert r.status_code == 200, f"メッセージ投稿失敗: {r.text}"
 
+    # 自分の投稿も「未読に戻す」の通知対象になることを検証する
+    r = client_b.post(
+        f"/api/task-channels/{channel['id']}/talks/{talk['id']}/messages",
+        json={"text": "自分の投稿を未読に戻すテスト"},
+    )
+    assert r.status_code == 200, f"自分のメッセージ投稿失敗: {r.text}"
+
     yield {"base_url": base_url, "acc_a": acc_a, "acc_b": acc_b, "client_a": client_a, "client_b": client_b,
            "channel": channel, "talk": talk, "staff_b_created": staff_b_created}
 
@@ -116,8 +123,8 @@ def test_01_mark_unread_restores_badges_and_mypage(env, browser: Browser):
         talk_row = talk_span.locator("xpath=..")
         expect(talk_row.locator("span.bg-rose-500")).to_have_count(0, timeout=15000)
 
-        # --- ② 1通目の「未読に戻す」を押す ---
-        row = page.locator("div[data-message-id]", has_text="未読戻しテスト1通目").first
+        # --- ② 自分の投稿にある「未読に戻す」を押す ---
+        row = page.locator("div[data-message-id]", has_text="自分の投稿を未読に戻すテスト").first
         row.hover()
         btn = row.locator("button:has-text('未読に戻す')")
         expect(btn).to_be_attached(timeout=10000)
@@ -132,9 +139,10 @@ def test_01_mark_unread_restores_badges_and_mypage(env, browser: Browser):
         page.wait_for_timeout(3000)
         expect(talk_row.locator("span.bg-rose-500")).to_be_visible()
 
-        # --- ⑤ APIでもBの未読に2件分が復活している ---
+        # --- ⑤ APIでも自分の投稿1件分が未読として集計される ---
         d = env["client_b"].get("/api/task-channels/unread").json()
-        assert d["byTalk"].get(env["talk"]["id"], 0) >= 2, f"未読が復活していない: {d}"
+        assert d["byTalk"].get(env["talk"]["id"], 0) == 1, f"自分の投稿の未読が集計されない: {d}"
+        assert any(item["talkId"] == env["talk"]["id"] for item in d["channelItems"]), "未読通知リストに含まれない"
         page.screenshot(path=".verdent/testing/screenshots/unread_restore_badge.png", full_page=False)
 
         # --- ⑥ マイページの未読パネルに表示される ---

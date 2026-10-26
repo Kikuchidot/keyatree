@@ -686,6 +686,11 @@ function readPath(memberId: string) {
   return `${READ_PREFIX}/${encodeURIComponent(memberId)}.json`;
 }
 
+/** read state 内の予約キー: 手動で未読へ戻した境界（トークを再度開くと解除） */
+function manualUnreadKey(talkId: string) {
+  return `__manualUnreadFrom__:${talkId}`;
+}
+
 export async function getReadState(memberId: string): Promise<ReadState> {
   if (!memberId) return {};
   if (!isSupabaseEnabled()) return memory().reads.get(memberId) ?? {};
@@ -702,6 +707,7 @@ export async function markTalkRead(memberId: string, talkId: string): Promise<vo
     const m = memory();
     const cur = m.reads.get(memberId) ?? {};
     cur[talkId] = now;
+    delete cur[manualUnreadKey(talkId)];
     m.reads.set(memberId, cur);
     return;
   }
@@ -709,32 +715,39 @@ export async function markTalkRead(memberId: string, talkId: string): Promise<vo
   await ensureBucket(supabase);
   const cur = (await getJson<ReadState>(supabase, readPath(memberId))) ?? {};
   cur[talkId] = now;
+  delete cur[manualUnreadKey(talkId)];
   await putJson(supabase, readPath(memberId), cur);
 }
 
 /**
- * 指定メッセージ以降を未読に戻す（既読位置をそのメッセージの直前に巻き戻す）。
- * 未読判定は createdAt > lastRead なので、対象メッセージ自身も未読に含めるため
- * 1ms 前を保存する。現在の既読位置より後ろには進めない（巻き戻しのみ）。
+ * 指定メッセージ以降を手動で未読に戻す。
+ * 自分の投稿も含めるため、既読時刻の巻き戻しに加えて手動未読境界を保存する。
+ * 対象トークを開いた際の markTalkRead で境界は解除される。
  */
 export async function markTalkUnreadFrom(memberId: string, talkId: string, fromCreatedAt: string): Promise<void> {
   if (!memberId || !talkId || !fromCreatedAt) return;
   const t = Date.parse(fromCreatedAt);
   if (Number.isNaN(t)) return;
   const before = new Date(t - 1).toISOString();
+  const key = manualUnreadKey(talkId);
   if (!isSupabaseEnabled()) {
     const m = memory();
     const cur = m.reads.get(memberId) ?? {};
-    if (cur[talkId] && cur[talkId] <= before) return;
-    cur[talkId] = before;
+    const existingFrom = cur[key];
+    const unreadFrom = existingFrom && existingFrom < fromCreatedAt ? existingFrom : fromCreatedAt;
+    if (!cur[talkId] || cur[talkId] > before) cur[talkId] = new Date(Date.parse(unreadFrom) - 1).toISOString();
+    cur[key] = unreadFrom;
     m.reads.set(memberId, cur);
     return;
   }
   const supabase = getSupabaseAdmin();
   await ensureBucket(supabase);
   const cur = (await getJson<ReadState>(supabase, readPath(memberId))) ?? {};
-  if (cur[talkId] && cur[talkId] <= before) return;
-  cur[talkId] = before;
+  const existingFrom = cur[key];
+  const unreadFrom = existingFrom && existingFrom < fromCreatedAt ? existingFrom : fromCreatedAt;
+  const unreadBefore = new Date(Date.parse(unreadFrom) - 1).toISOString();
+  if (!cur[talkId] || cur[talkId] > unreadBefore) cur[talkId] = unreadBefore;
+  cur[key] = unreadFrom;
   await putJson(supabase, readPath(memberId), cur);
 }
 
@@ -819,8 +832,11 @@ export async function computeUnread(memberId: string): Promise<UnreadSummary> {
       continue;
     }
     const lastRead = reads[talk.id] ?? "";
+    const manualUnreadFrom = reads[manualUnreadKey(talk.id)] ?? "";
     const messages = await listTalkMessages(talk.id);
-    const unreadMsgs = messages.filter((m) => m.authorId !== memberId && m.createdAt > lastRead);
+    const unreadMsgs = messages.filter(
+      (m) => m.createdAt > lastRead && (m.authorId !== memberId || (manualUnreadFrom && m.createdAt >= manualUnreadFrom))
+    );
     const count = unreadMsgs.length;
     if (count === 0) continue;
     byTalk[talk.id] = count;
