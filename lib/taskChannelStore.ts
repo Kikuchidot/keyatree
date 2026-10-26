@@ -831,14 +831,8 @@ export async function computeUnread(memberId: string): Promise<UnreadSummary> {
     if (isDm) return memberOfChannel;
     return memberOfChannel || memberOfTalk || channel.members.length === 0;
   });
-  // 同時リクエスト数を制限しつつ並列取得（全件直列だとRTT×件数で数十秒かかる）
-  const CONCURRENCY = 52;
-  const messagesByTalk: TalkMessage[][] = new Array(visibleTalks.length);
-  for (let start = 0; start < visibleTalks.length; start += CONCURRENCY) {
-    const chunk = visibleTalks.slice(start, start + CONCURRENCY);
-    const loaded = await Promise.all(chunk.map((talk) => listTalkMessages(talk.id)));
-    for (let i = 0; i < chunk.length; i++) messagesByTalk[start + i] = loaded[i];
-  }
+  // 並列取得（直列だとRTT×トーク数で数十秒かかる。Supabaseへの同時接続は実測問題なし）
+  const messagesByTalk = await Promise.all(visibleTalks.map((talk) => listTalkMessages(talk.id)));
 
   for (let ti = 0; ti < visibleTalks.length; ti++) {
     const talk = visibleTalks[ti];
