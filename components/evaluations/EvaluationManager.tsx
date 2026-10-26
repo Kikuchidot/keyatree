@@ -255,6 +255,7 @@ export default function EvaluationManager({
                     <th className="px-4 py-3 font-bold">名前</th>
                     <th className="px-4 py-3 font-bold">チーム</th>
                     <th className="px-4 py-3 font-bold">グレード</th>
+                    <th className="px-4 py-3 font-bold text-center">現ランク</th>
                     <th className="px-4 py-3 font-bold text-center">月別達成率（全社）</th>
                     <th className="px-4 py-3 font-bold text-right">①現状基本給</th>
                     <th className="px-4 py-3 font-bold text-right">②評価結果</th>
@@ -271,6 +272,15 @@ export default function EvaluationManager({
                       <td className="px-4 py-3 font-bold text-gray-800">{record.employeeName}</td>
                       <td className="px-4 py-3 text-gray-600">{record.teamLabel}</td>
                       <td className="px-4 py-3 text-gray-600">{record.stageGrade}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span
+                          className={`inline-block text-xs font-black px-2 py-1 rounded-full border ${
+                            RANK_STYLES[(record.currentRank || "B").toUpperCase()] || RANK_STYLES.B
+                          }`}
+                        >
+                          {record.currentRank || "B"}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-center">
                         <div className="flex items-center justify-center gap-1.5">
                           {months.map((m, i) => {
@@ -347,7 +357,7 @@ export default function EvaluationManager({
                     </tr>
                   ))}
                   <tr className="bg-slate-50 font-bold">
-                    <td className="px-4 py-3 text-gray-800" colSpan={4}>
+                    <td className="px-4 py-3 text-gray-800" colSpan={5}>
                       合計（{rows.length}名）
                     </td>
                     <td className="px-4 py-3 text-right font-mono">

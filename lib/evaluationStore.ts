@@ -48,6 +48,8 @@ export type EvaluationRecord = {
   teamCode: string;
   teamLabel: string;
   stageGrade: string;
+  /** 現状の評価ランク（S/A/B/C/D/E）。スタッフマスターの evaluationRank から取込 */
+  currentRank?: string;
   /** 現状号俸 */
   currentGokyu: number;
   /** ①現状基本給 */

@@ -15,7 +15,7 @@ import {
 } from "@/lib/evaluationStore";
 import { getServerSession, listNavigatorRecords } from "@/lib/goalNavigatorStore";
 import { periodFromTitle } from "@/lib/goalAccess";
-import { listStaff } from "@/lib/staffServerStore";
+import { getStaff, listStaff, saveStaff } from "@/lib/staffServerStore";
 import {
   QUALITATIVE_ITEM_LABELS,
   TEAM_LABELS,
@@ -83,7 +83,17 @@ export async function getEvaluationRecordsAction(
   periodId?: string
 ): Promise<EvaluationRecord[]> {
   if (!(await isEvaluationAdmin())) return [];
-  return listEvaluationRecords(periodId);
+  const records = await listEvaluationRecords(periodId);
+  // currentRank が未設定の旧レコードにスタッフマスターの現状ランクを補完する
+  const missing = records.some((r) => !r.currentRank);
+  if (missing) {
+    const staff = await listStaff();
+    const rankById = new Map(staff.map((s) => [s.id, s.evaluationRank || "B"]));
+    for (const r of records) {
+      if (!r.currentRank) r.currentRank = rankById.get(r.employeeId) || "B";
+    }
+  }
+  return records;
 }
 
 /**
@@ -177,6 +187,7 @@ export async function generateEvaluationRecordsAction(
       teamCode,
       teamLabel: TEAM_LABELS[teamCode],
       stageGrade,
+      currentRank: emp.evaluationRank || "B",
       currentGokyu,
       currentSalary,
       quantitative: {
@@ -249,9 +260,22 @@ export async function finalizeEvaluationRecordAction(
   const months = period?.months || monthsForQuarter(2026, 1);
   const computed = computeEvaluation(existing, months);
 
+  // 確定時、スタッフマスターの評価ランクを新しいランクに更新する
+  try {
+    const emp = await getStaff(existing.employeeId);
+    if (emp && emp.evaluationRank !== computed.rank.rank) {
+      await saveStaff({ ...emp, evaluationRank: computed.rank.rank });
+      revalidatePath("/employees");
+      revalidatePath(`/employees/${emp.id}`);
+    }
+  } catch {
+    // スタッフマスター更新の失敗は評価確定自体は止めない
+  }
+
   const next = await saveEvaluationRecord({
     ...existing,
     status: "confirmed",
+    currentRank: existing.currentRank,
     finalSalary: computed.finalSalary,
     confirmedAt: new Date().toISOString(),
     confirmedBy: auth.session.name,

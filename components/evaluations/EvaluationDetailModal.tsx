@@ -111,8 +111,10 @@ export default function EvaluationDetailModal({
               {draft.employeeName} <span className="text-sm font-bold text-gray-400">さんの評価</span>
             </h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              {draft.teamLabel} / グレード {draft.stageGrade} / 号俸 {draft.currentGokyu} →{" "}
-              <span className="font-bold text-slate-700">{computed.newGokyu}</span>
+              {draft.teamLabel} / グレード {draft.stageGrade} / 現ランク{" "}
+              <span className="font-black text-slate-700">{draft.currentRank || "B"}</span> → 算出後{" "}
+              <span className={`font-black text-violet-700`}>{computed.rank.rank}</span> / 号俸{" "}
+              {draft.currentGokyu} → <span className="font-bold text-slate-700">{computed.newGokyu}</span>
               {readOnly ? (
                 <span className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
                   確定済み
@@ -135,6 +137,64 @@ export default function EvaluationDetailModal({
               {message}
             </div>
           ) : null}
+
+          {/* 現状（ランク・号俸・基本給） */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-black text-gray-800 border-l-4 border-slate-400 pl-2">
+              現状のランク・号俸・基本給（スタッフごとに修正可）
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <label className="text-xs text-gray-500">
+                現状ランク（S/A/B/C/D/E）
+                <select
+                  disabled={readOnly}
+                  value={draft.currentRank || "B"}
+                  onChange={(e) => setDraft((d) => ({ ...d, currentRank: e.target.value }))}
+                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-50"
+                >
+                  {["S", "A", "B", "C", "D", "E"].map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs text-gray-500">
+                現状号俸
+                <input
+                  type="number"
+                  disabled={readOnly}
+                  value={draft.currentGokyu || ""}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, currentGokyu: Number(e.target.value) || 0 }))
+                  }
+                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50"
+                />
+              </label>
+              <label className="text-xs text-gray-500">
+                ①現状基本給
+                <input
+                  type="number"
+                  disabled={readOnly}
+                  value={draft.currentSalary || ""}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, currentSalary: Number(e.target.value) || 0 }))
+                  }
+                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-50"
+                />
+              </label>
+              <div className="text-xs text-gray-500">
+                ステージ
+                <p className="mt-2 text-sm font-bold text-gray-800">
+                  {computed.stage === "staff"
+                    ? "スタッフ"
+                    : computed.stage === "leader"
+                      ? "リーダー"
+                      : "マネージャー"}
+                </p>
+              </div>
+            </div>
+          </section>
 
           {/* 定量（月別） */}
           <section className="space-y-3">
