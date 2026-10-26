@@ -70,6 +70,16 @@ export default function MemberPicker({
         : true,
     );
 
+  const selectableIds = visible.filter((m) => !lockedIds.includes(m.id)).map((m) => m.id);
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.includes(id));
+  const selectAll = () => {
+    if (selectableIds.length === 0) return;
+    onChange([...new Set([...selectedIds, ...selectableIds])]);
+  };
+  const clearAll = () => {
+    onChange(selectedIds.filter((id) => !selectableIds.includes(id)));
+  };
+
   return (
     <div className="space-y-2">
       <input
@@ -78,6 +88,34 @@ export default function MemberPicker({
         placeholder="名前・チームで検索..."
         className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-400"
       />
+      {selectableIds.length > 0 && (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={selectAll}
+            className={`flex-1 px-3 py-1.5 rounded-lg border text-xs font-bold transition ${
+              allSelected
+                ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
+                : "border-emerald-400 text-emerald-600 hover:bg-emerald-50"
+            }`}
+            disabled={allSelected}
+          >
+            すべて選択（{selectableIds.length}名）
+          </button>
+          <button
+            type="button"
+            onClick={clearAll}
+            disabled={selectedIds.length === 0}
+            className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition ${
+              selectedIds.length === 0
+                ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
+                : "border-gray-300 text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            全解除
+          </button>
+        </div>
+      )}
       <div className="max-h-56 overflow-y-auto space-y-1 border border-gray-100 rounded-lg p-1">
         {loading && members.length === 0 ? (
           <p className="text-xs text-gray-400 text-center py-4">読み込み中...</p>
