@@ -649,6 +649,36 @@ export default function ChannelsWorkspacePage() {
     loadDms();
   }, [load, loadDms]);
 
+  // ---- 通知からのダイレクトリンク（?channel=&talk=&msg= / ?dm=&talk=&msg=） ----
+  // 通知を押して遷移してきた場合、対象のトーク/DMを自動で開き、トリガーメッセージまでスクロールする
+  const [pendingHighlight, setPendingHighlight] = useState<string | null>(null);
+  const deepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (deepLinkHandled.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const talkId = params.get("talk");
+    const msgId = params.get("msg");
+    if (!talkId) return;
+    if (params.get("dm")) {
+      const dmChannelId = params.get("dm");
+      const dm = dmChannels.find((d) => d.id === dmChannelId || d.talkId === talkId);
+      if (!dm) return;
+      deepLinkHandled.current = true;
+      selectDm(dm);
+    } else {
+      const channelId = params.get("channel");
+      if (!channelId || !channels.some((c) => c.id === channelId)) return;
+      deepLinkHandled.current = true;
+      setExpanded((prev) => new Set(prev).add(channelId));
+      loadChannel(channelId);
+      selectTalk(channelId, talkId);
+    }
+    if (msgId) setPendingHighlight(msgId);
+    // URLパラメータを除去（再読み込みで再度スクロールしないように）
+    window.history.replaceState(null, "", "/tasks/channels");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channels, dmChannels]);
+
   const loadChannel = useCallback(async (id: string) => {
     try {
       const res = await fetch(`/api/task-channels/${id}`);
@@ -1096,6 +1126,8 @@ export default function ChannelsWorkspacePage() {
               talk={selectedTalk}
               canManage={isAdmin || selectedChannel.members.some((m) => m.id === meId)}
               meId={meId}
+              highlightMessageId={pendingHighlight}
+              clearHighlight={() => setPendingHighlight(null)}
               onTalkUpdated={(t) =>
                 setTalksByChannel((prev) => ({
                   ...prev,
@@ -1121,6 +1153,8 @@ export default function ChannelsWorkspacePage() {
               peer={selection.peer}
               meId={meId}
               meName={session?.name ?? ""}
+              highlightMessageId={pendingHighlight}
+              clearHighlight={() => setPendingHighlight(null)}
               onMessageSent={() => loadDms()}
             />
           ) : (
@@ -1313,12 +1347,17 @@ function TalkView({
   talk,
   canManage,
   meId,
+  highlightMessageId,
+  clearHighlight,
   onTalkUpdated,
 }: {
   channel: Channel;
   talk: Talk;
   canManage: boolean;
   meId: string;
+  /** 通知から遷移した場合のスクロール対象メッセージID */
+  highlightMessageId?: string | null;
+  clearHighlight?: () => void;
   onTalkUpdated: (t: Talk) => void;
 }) {
   const [tab, setTab] = useState<"chat" | "tasks" | "members">("chat");
@@ -1434,6 +1473,19 @@ function TalkView({
       .catch(() => setMessages([]))
       .finally(() => setMsgLoading(false));
   }, [channel.id, talk.id]);
+
+  // 通知から遷移した場合: トリガーメッセージまでスクロールしてハイライト
+  useEffect(() => {
+    if (!highlightMessageId || msgLoading) return;
+    const el = document.querySelector(`[data-message-id="${highlightMessageId}"]`);
+    if (el) {
+      el.scrollIntoView({ block: "center" });
+      el.classList.add("kt-msg-highlight");
+      window.setTimeout(() => el.classList.remove("kt-msg-highlight"), 4000);
+    }
+    clearHighlight?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightMessageId, msgLoading, messages]);
 
   const sendMessage = async () => {
     const text = composer.trim();
@@ -1732,7 +1784,7 @@ function TalkView({
                     }
                     const reactions = m.reactions ?? [];
                     return (
-                      <div key={m.id} className="flex gap-3 group">
+                      <div key={m.id} data-message-id={m.id} className="flex gap-3 group">
                         <span className={`${isReply ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm"} rounded-full ${colorFor(m.authorId)} flex items-center justify-center text-white font-bold flex-shrink-0`}>
                           {m.authorName.charAt(0)}
                         </span>
@@ -2943,12 +2995,17 @@ function DmView({
   peer,
   meId,
   meName,
+  highlightMessageId,
+  clearHighlight,
   onMessageSent,
 }: {
   dmChannelId: string;
   peer: { id: string; name: string };
   meId: string;
   meName: string;
+  /** 通知から遷移した場合のスクロール対象メッセージID */
+  highlightMessageId?: string | null;
+  clearHighlight?: () => void;
   onMessageSent: () => void;
 }) {
   const [messages, setMessages] = useState<TalkMessage[]>([]);
@@ -2974,7 +3031,22 @@ function DmView({
 
   useEffect(() => { loadMessages(); }, [loadMessages]);
 
+  // 通知から遷移した場合: トリガーメッセージまでスクロールしてハイライト
   useEffect(() => {
+    if (!highlightMessageId || loading) return;
+    const el = document.querySelector(`[data-message-id="${highlightMessageId}"]`);
+    if (el) {
+      el.scrollIntoView({ block: "center" });
+      el.classList.add("kt-msg-highlight");
+      window.setTimeout(() => el.classList.remove("kt-msg-highlight"), 4000);
+    }
+    clearHighlight?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightMessageId, loading, messages]);
+
+  useEffect(() => {
+    // 通知からの遷移でトリガーメッセージへスクロールする場合は最下部への自動スクロールを抑制
+    if (highlightMessageId) return;
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
@@ -3135,7 +3207,7 @@ function DmView({
               const mine = m.authorId === meId;
               const reactions = m.reactions ?? [];
               return (
-                <div key={m.id} className="flex gap-3 group">
+                <div key={m.id} data-message-id={m.id} className="flex gap-3 group">
                   <span className={`w-8 h-8 rounded-full ${colorFor(m.authorId)} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
                     {m.authorName.charAt(0)}
                   </span>

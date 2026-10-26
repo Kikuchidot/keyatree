@@ -5,13 +5,23 @@ import Link from "next/link";
 
 type UnreadData = {
   total: number;
-  channelItems: { id: string; name: string; unread: number }[];
-  dmItems: { id: string; talkId?: string; peerName: string; unread: number }[];
+  channelItems: { id: string; name: string; unread: number; talkId?: string; talkName?: string; lastMessageId?: string }[];
+  dmItems: { id: string; talkId?: string; peerName: string; unread: number; lastMessageId?: string }[];
 };
+
+/** 通知から対象トーク＋トリガーメッセージへ直接ジャンプするURL */
+function jumpUrl(channelId: string, talkId?: string, lastMessageId?: string, isDm = false) {
+  const p = new URLSearchParams();
+  if (talkId) p.set("talk", talkId);
+  if (channelId) p.set(isDm ? "dm" : "channel", channelId);
+  if (lastMessageId) p.set("msg", lastMessageId);
+  return `/tasks/channels?${p.toString()}`;
+}
 
 /**
  * マイページ向け: チャット（チャンネル・トーク・DM）の未読サマリーを表示する。
  * 未読が0件のときはパネル自体を表示しない。
+ * 通知を押すと、未読の発生したトークルームを開き、トリガーとなったメッセージまでスクロールする。
  */
 export default function ChatUnreadPanel() {
   const [data, setData] = useState<UnreadData | null>(null);
@@ -63,13 +73,15 @@ export default function ChatUnreadPanel() {
       <div className="space-y-1.5">
         {data.channelItems.slice(0, 5).map((c) => (
           <Link
-            key={c.id}
-            href="/tasks/channels"
+            key={`${c.id}:${c.talkId ?? ""}`}
+            href={jumpUrl(c.id, c.talkId, c.lastMessageId)}
             target="_blank"
             className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50 transition"
           >
             <span className="text-gray-400 text-xs">#</span>
-            <span className="text-sm text-gray-700 truncate flex-1">{c.name}</span>
+            <span className="text-sm text-gray-700 truncate flex-1">
+              {c.name}{c.talkName ? ` / ${c.talkName}` : ""}
+            </span>
             <span className="flex-shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-rose-500 text-white text-[11px] font-bold flex items-center justify-center">
               {c.unread > 99 ? "99+" : c.unread}
             </span>
@@ -78,7 +90,7 @@ export default function ChatUnreadPanel() {
         {data.dmItems.slice(0, 5).map((d) => (
           <Link
             key={d.id}
-            href="/tasks/channels"
+            href={jumpUrl(d.id, d.talkId, d.lastMessageId, true)}
             target="_blank"
             className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-50 transition"
           >

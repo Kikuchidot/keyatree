@@ -740,9 +740,9 @@ export type UnreadSummary = {
   byChannel: Record<string, number>;
   total: number;
   /** 未読がある通常チャンネル（未読多い順） */
-  channelItems: { id: string; name: string; unread: number }[];
+  channelItems: { id: string; name: string; unread: number; talkId?: string; talkName?: string; lastMessageId?: string; lastMessageAt?: string }[];
   /** 未読があるDM（未読多い順） */
-  dmItems: { id: string; talkId?: string; peerName: string; unread: number }[];
+  dmItems: { id: string; talkId?: string; peerName: string; unread: number; lastMessageId?: string; lastMessageAt?: string }[];
 };
 
 /**
@@ -784,11 +784,30 @@ export async function computeUnread(memberId: string): Promise<UnreadSummary> {
     byTalk[talk.id] = count;
     byChannel[channel.id] = (byChannel[channel.id] ?? 0) + count;
     total += count;
+    // 通知のトリガーとなった最新メッセージ（未読分の中で最後のもの）
+    const trigger = messages
+      .filter((m) => m.authorId !== memberId && m.createdAt > lastRead)
+      .reduce<TalkMessage | null>((latest, m) => (!latest || m.createdAt > latest.createdAt ? m : latest), null);
     if (isDm) {
       const peer = channel.members.find((m) => m.id !== memberId) ?? channel.members[0];
-      dmItems.push({ id: channel.id, talkId: talk.id, peerName: peer?.name ?? "不明", unread: count });
+      dmItems.push({
+        id: channel.id,
+        talkId: talk.id,
+        peerName: peer?.name ?? "不明",
+        unread: count,
+        lastMessageId: trigger?.id,
+        lastMessageAt: trigger?.createdAt,
+      });
     } else {
-      channelItems.push({ id: channel.id, name: channel.name, unread: count });
+      channelItems.push({
+        id: channel.id,
+        name: channel.name,
+        unread: count,
+        talkId: talk.id,
+        talkName: talk.name,
+        lastMessageId: trigger?.id,
+        lastMessageAt: trigger?.createdAt,
+      });
     }
   }
 
