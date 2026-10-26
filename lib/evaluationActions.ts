@@ -87,9 +87,9 @@ export async function getEvaluationRecordsAction(
 }
 
 /**
- * 期間の評価レコードを全スタッフ分 自动生成する。
- * 定量の全社/個人(チーム)の目標値・結果値は、期間内の承認済み定量目標シートから
- * 最新のものを自動取込する（未提出・解析不能は 0 = 要手動入力）。
+ * 期間の評価レコードを全スタッフ分自動生成する。
+ * 定量は期間内の各月の承認済み定量目標シートから、月ごとに全社/個人(チーム)の
+ * 目標値・結果値を自動取込する（未提出月・解析不能は未入力 = 手動入力対象）。
  */
 export async function generateEvaluationRecordsAction(
   periodId: string
@@ -106,18 +106,18 @@ export async function generateEvaluationRecordsAction(
   const existing = await listEvaluationRecords(periodId);
   const existingByEmployee = new Set(existing.map((r) => r.employeeId));
 
-  // 期間内の承認済み定量目標シートを従業員ごとの最新1件に整理
+  // 期間内の承認済み定量目標シートを「従業員×月」ごとの最新1件に整理
   const goalRecords = await listNavigatorRecords({ kind: "quantitative", includeAll: true });
   const inPeriod = goalRecords.filter((r) => {
     if (r.status !== "approved") return false;
     const ym = periodFromTitle(r.title);
     return ym ? monthsInclude(periodId, ym) : false;
   });
-  const latestByEmployee = new Map<string, typeof inPeriod[number]>();
+  const latestByEmployeeMonth = new Map<string, typeof inPeriod[number]>();
   for (const r of inPeriod) {
-    const key = r.employeeId || r.ownerId;
-    const prev = latestByEmployee.get(key);
-    if (!prev || r.updatedAt > prev.updatedAt) latestByEmployee.set(key, r);
+    const key = `${r.employeeId || r.ownerId}::${periodFromTitle(r.title)}`;
+    const prev = latestByEmployeeMonth.get(key);
+    if (!prev || r.updatedAt > prev.updatedAt) latestByEmployeeMonth.set(key, r);
   }
 
   const now = new Date().toISOString();
@@ -142,18 +142,32 @@ export async function generateEvaluationRecordsAction(
     const currentGokyu = defaultGokyuForStage(stage);
     const currentSalary = salaryForGokyu(stage, currentGokyu);
 
-    const goal = latestByEmployee.get(emp.id);
-    const answers = goal?.answers || {};
-    const companyTarget = parseNumber(answers.company_value);
-    const companyResult = parseNumber(answers.company_result);
-    const otherTarget =
-      weight.otherType === "team"
-        ? parseNumber(answers.team_value) || parseNumber(answers.team_deadline)
-        : parseNumber(answers.personal_value);
-    const otherResult =
-      weight.otherType === "team"
-        ? parseNumber(answers.team_result) || parseNumber(answers.monthly_result1)
-        : parseNumber(answers.personal_result) || parseNumber(answers.monthly_result1);
+    // 月ごとに定量目標シートから取込
+    const companyMonthly: Record<string, { target: number; result: number }> = {};
+    const otherMonthly: Record<string, { target: number; result: number }> = {};
+    const sourceRecordIds: string[] = [];
+    for (const ym of period.months) {
+      const goal = latestByEmployeeMonth.get(`${emp.id}::${ym}`);
+      if (!goal) continue;
+      sourceRecordIds.push(goal.id);
+      const answers = goal.answers || {};
+      const companyTarget = parseNumber(answers.company_value);
+      const companyResult = parseNumber(answers.company_result);
+      if (companyTarget > 0 || companyResult > 0) {
+        companyMonthly[ym] = { target: companyTarget, result: companyResult };
+      }
+      const otherTarget =
+        weight.otherType === "team"
+          ? parseNumber(answers.team_value) || parseNumber(answers.team_deadline)
+          : parseNumber(answers.personal_value);
+      const otherResult =
+        weight.otherType === "team"
+          ? parseNumber(answers.team_result) || parseNumber(answers.monthly_result1)
+          : parseNumber(answers.personal_result) || parseNumber(answers.monthly_result1);
+      if (otherTarget > 0 || otherResult > 0) {
+        otherMonthly[ym] = { target: otherTarget, result: otherResult };
+      }
+    }
 
     newRecords.push({
       id: crypto.randomUUID(),
@@ -166,11 +180,9 @@ export async function generateEvaluationRecordsAction(
       currentGokyu,
       currentSalary,
       quantitative: {
-        companyTarget,
-        companyResult,
-        otherTarget,
-        otherResult,
-        sourceRecordIds: goal ? [goal.id] : [],
+        companyMonthly,
+        otherMonthly,
+        sourceRecordIds,
       },
       qualitative: [0, 1, 2].map((i) => ({
         label: QUALITATIVE_ITEM_LABELS[i],

@@ -255,6 +255,7 @@ export default function EvaluationManager({
                     <th className="px-4 py-3 font-bold">名前</th>
                     <th className="px-4 py-3 font-bold">チーム</th>
                     <th className="px-4 py-3 font-bold">グレード</th>
+                    <th className="px-4 py-3 font-bold text-center">月別達成率（全社）</th>
                     <th className="px-4 py-3 font-bold text-right">①現状基本給</th>
                     <th className="px-4 py-3 font-bold text-right">②評価結果</th>
                     <th className="px-4 py-3 font-bold text-right">③確定基本給</th>
@@ -270,6 +271,30 @@ export default function EvaluationManager({
                       <td className="px-4 py-3 font-bold text-gray-800">{record.employeeName}</td>
                       <td className="px-4 py-3 text-gray-600">{record.teamLabel}</td>
                       <td className="px-4 py-3 text-gray-600">{record.stageGrade}</td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {months.map((m, i) => {
+                            const r = computed.monthlyCompanyRates[i];
+                            return (
+                              <span
+                                key={m}
+                                title={`${m.slice(5)}月: ${r !== null ? `${r}%` : "未入力"}`}
+                                className={`inline-block text-[10px] font-mono font-bold px-1.5 py-1 rounded-md border ${
+                                  r === null
+                                    ? "bg-gray-50 text-gray-300 border-gray-200"
+                                    : r >= 100
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                      : r >= 70
+                                        ? "bg-amber-50 text-amber-700 border-amber-200"
+                                        : "bg-rose-50 text-rose-700 border-rose-200"
+                                }`}
+                              >
+                                {m.slice(5)}: {r !== null ? `${Math.round(r)}%` : "—"}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-right font-mono text-gray-700">
                         {record.currentSalary.toLocaleString()}
                       </td>
@@ -322,7 +347,7 @@ export default function EvaluationManager({
                     </tr>
                   ))}
                   <tr className="bg-slate-50 font-bold">
-                    <td className="px-4 py-3 text-gray-800" colSpan={3}>
+                    <td className="px-4 py-3 text-gray-800" colSpan={4}>
                       合計（{rows.length}名）
                     </td>
                     <td className="px-4 py-3 text-right font-mono">
@@ -348,7 +373,8 @@ export default function EvaluationManager({
 
         <p className="text-xs text-gray-400">
           ①現状基本給 → ②評価結果（号俸から自動算出）→ ③確定基本給（②＋手動調整額）。
-          達成率は100%で頭打ち、総合点から獲得ランク（S〜E）と号俸ポイント（+3〜-3）を算出します。
+          定量は月別の目標値・結果値から各月の達成率（100%頭打ち）と四半期合計を算出し、
+          定性は月別点数（0〜10点）から達成率を算出します。総合点から獲得ランク（S〜E）と号俸ポイント（+3〜-3）を決定します。
         </p>
       </main>
 

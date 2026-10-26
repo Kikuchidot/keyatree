@@ -35,8 +35,22 @@ export default function EvaluationDetailModal({
   const computed = computeEvaluation(draft, months);
   const readOnly = confirmed;
 
-  function updateQuantitative(patch: Partial<EvaluationRecord["quantitative"]>) {
-    setDraft((d) => ({ ...d, quantitative: { ...d.quantitative, ...patch } }));
+  function updateMonthly(
+    kind: "companyMonthly" | "otherMonthly",
+    month: string,
+    field: "target" | "result",
+    value: string
+  ) {
+    const num = Number(value) || 0;
+    setDraft((d) => {
+      const entries = { ...(d.quantitative[kind] || {}) };
+      const prev = entries[month] || { target: 0, result: 0 };
+      entries[month] = { ...prev, [field]: num };
+      return {
+        ...d,
+        quantitative: { ...d.quantitative, [kind]: entries },
+      };
+    });
   }
 
   function updateScore(itemIndex: number, month: string, value: string) {
@@ -122,90 +136,128 @@ export default function EvaluationDetailModal({
             </div>
           ) : null}
 
-          {/* 定量 */}
+          {/* 定量（月別） */}
           <section className="space-y-3">
-            <h3 className="text-sm font-black text-gray-800 border-l-4 border-sky-500 pl-2">
-              定量評価（達成率は100%で頭打ち）
-            </h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="border border-gray-200 rounded-xl p-4 space-y-2">
-                <p className="text-xs font-bold text-gray-500">
-                  全社目標（ウエイト {Math.round(computed.weight.company * 100)}%）
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="text-xs text-gray-500">
-                    目標値
-                    <input
-                      type="number"
-                      disabled={readOnly}
-                      value={draft.quantitative.companyTarget || ""}
-                      onChange={(e) =>
-                        updateQuantitative({ companyTarget: Number(e.target.value) || 0 })
-                      }
-                      className="mt-1 w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm disabled:bg-gray-50"
-                    />
-                  </label>
-                  <label className="text-xs text-gray-500">
-                    結果値
-                    <input
-                      type="number"
-                      disabled={readOnly}
-                      value={draft.quantitative.companyResult || ""}
-                      onChange={(e) =>
-                        updateQuantitative({ companyResult: Number(e.target.value) || 0 })
-                      }
-                      className="mt-1 w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm disabled:bg-gray-50"
-                    />
-                  </label>
-                </div>
-                <p className="text-xs text-gray-600">
-                  達成率 <span className="font-bold">{computed.companyRate ?? "-"}</span>% → 獲得ポイント{" "}
-                  <span className="font-bold">{computed.companyPoints}</span>
-                </p>
-              </div>
-
-              <div className="border border-gray-200 rounded-xl p-4 space-y-2">
-                <p className="text-xs font-bold text-gray-500">
-                  {draft.quantitative.sourceRecordIds.length > 0 ? "（定量目標シートから自動取込済み）" : ""}
-                  {computed.weight.otherType === "team"
-                    ? "チーム目標"
-                    : computed.weight.otherType === "personal"
-                      ? "個人目標"
-                      : "個人・チーム目標（対象なし）"}
-                  （ウエイト {Math.round(computed.weight.other * 100)}%）
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="text-xs text-gray-500">
-                    目標値
-                    <input
-                      type="number"
-                      disabled={readOnly || computed.weight.otherType === "none"}
-                      value={draft.quantitative.otherTarget || ""}
-                      onChange={(e) =>
-                        updateQuantitative({ otherTarget: Number(e.target.value) || 0 })
-                      }
-                      className="mt-1 w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm disabled:bg-gray-50"
-                    />
-                  </label>
-                  <label className="text-xs text-gray-500">
-                    結果値
-                    <input
-                      type="number"
-                      disabled={readOnly || computed.weight.otherType === "none"}
-                      value={draft.quantitative.otherResult || ""}
-                      onChange={(e) =>
-                        updateQuantitative({ otherResult: Number(e.target.value) || 0 })
-                      }
-                      className="mt-1 w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm disabled:bg-gray-50"
-                    />
-                  </label>
-                </div>
-                <p className="text-xs text-gray-600">
-                  達成率 <span className="font-bold">{computed.otherRate ?? "-"}</span>% → 獲得ポイント{" "}
-                  <span className="font-bold">{computed.otherPoints}</span>
-                </p>
-              </div>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h3 className="text-sm font-black text-gray-800 border-l-4 border-sky-500 pl-2">
+                定量評価（月別入力・達成率は各月100%で頭打ち）
+              </h3>
+              {draft.quantitative.sourceRecordIds.length > 0 ? (
+                <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-sky-100 text-sky-700 border border-sky-200">
+                  定量目標シートから月別自動取込済み（{draft.quantitative.sourceRecordIds.length}件）
+                </span>
+              ) : null}
             </div>
+            <div className="overflow-x-auto border border-gray-200 rounded-xl">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-sky-50 text-xs text-gray-500 border-b border-gray-200">
+                    <th className="px-3 py-2 text-left font-bold" rowSpan={2}>月</th>
+                    <th className="px-3 py-1.5 font-bold border-l border-gray-200" colSpan={3}>
+                      全社目標（ウエイト {Math.round(computed.weight.company * 100)}%）
+                    </th>
+                    <th className="px-3 py-1.5 font-bold border-l border-gray-200" colSpan={3}>
+                      {computed.weight.otherType === "team"
+                        ? "チーム目標"
+                        : computed.weight.otherType === "personal"
+                          ? "個人目標"
+                          : "個人・チーム目標（対象なし）"}
+                      （ウエイト {Math.round(computed.weight.other * 100)}%）
+                    </th>
+                  </tr>
+                  <tr className="bg-sky-50 text-[10px] text-gray-400 border-b border-gray-200">
+                    <th className="px-2 py-1.5 font-bold border-l border-gray-200">目標値</th>
+                    <th className="px-2 py-1.5 font-bold">結果値</th>
+                    <th className="px-2 py-1.5 font-bold">達成率</th>
+                    <th className="px-2 py-1.5 font-bold border-l border-gray-200">目標値</th>
+                    <th className="px-2 py-1.5 font-bold">結果値</th>
+                    <th className="px-2 py-1.5 font-bold">達成率</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {months.map((m, i) => {
+                    const company = draft.quantitative.companyMonthly?.[m];
+                    const other = draft.quantitative.otherMonthly?.[m];
+                    const cRate = computed.monthlyCompanyRates[i];
+                    const oRate = computed.monthlyOtherRates[i];
+                    return (
+                      <tr key={m} className="border-b border-gray-100">
+                        <td className="px-3 py-2 font-bold text-gray-700">
+                          {m.slice(0, 4)}年{m.slice(5)}月
+                        </td>
+                        <td className="px-2 py-1.5 border-l border-gray-200">
+                          <input
+                            type="number"
+                            disabled={readOnly}
+                            value={company?.target || ""}
+                            onChange={(e) => updateMonthly("companyMonthly", m, "target", e.target.value)}
+                            className="w-20 border border-gray-300 rounded-md px-2 py-1 text-right text-sm disabled:bg-gray-50"
+                          />
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <input
+                            type="number"
+                            disabled={readOnly}
+                            value={company?.result || ""}
+                            onChange={(e) => updateMonthly("companyMonthly", m, "result", e.target.value)}
+                            className="w-20 border border-gray-300 rounded-md px-2 py-1 text-right text-sm disabled:bg-gray-50"
+                          />
+                        </td>
+                        <td className="px-2 py-1.5 text-center font-mono font-bold text-gray-800">
+                          {cRate !== null ? `${cRate}%` : "—"}
+                        </td>
+                        <td className="px-2 py-1.5 border-l border-gray-200">
+                          <input
+                            type="number"
+                            disabled={readOnly || computed.weight.otherType === "none"}
+                            value={other?.target || ""}
+                            onChange={(e) => updateMonthly("otherMonthly", m, "target", e.target.value)}
+                            className="w-20 border border-gray-300 rounded-md px-2 py-1 text-right text-sm disabled:bg-gray-50"
+                          />
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <input
+                            type="number"
+                            disabled={readOnly || computed.weight.otherType === "none"}
+                            value={other?.result || ""}
+                            onChange={(e) => updateMonthly("otherMonthly", m, "result", e.target.value)}
+                            className="w-20 border border-gray-300 rounded-md px-2 py-1 text-right text-sm disabled:bg-gray-50"
+                          />
+                        </td>
+                        <td className="px-2 py-1.5 text-center font-mono font-bold text-gray-800">
+                          {oRate !== null ? `${oRate}%` : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="bg-slate-50 font-bold border-t-2 border-gray-200">
+                    <td className="px-3 py-2 text-gray-800">四半期合計</td>
+                    <td className="px-2 py-2 text-right font-mono border-l border-gray-200">
+                      {computed.companySum.target.toLocaleString()}
+                    </td>
+                    <td className="px-2 py-2 text-right font-mono">
+                      {computed.companySum.result.toLocaleString()}
+                    </td>
+                    <td className="px-2 py-2 text-center font-mono">
+                      {computed.companyRate !== null ? `${computed.companyRate}%` : "—"}
+                    </td>
+                    <td className="px-2 py-2 text-right font-mono border-l border-gray-200">
+                      {computed.otherSum.target.toLocaleString()}
+                    </td>
+                    <td className="px-2 py-2 text-right font-mono">
+                      {computed.otherSum.result.toLocaleString()}
+                    </td>
+                    <td className="px-2 py-2 text-center font-mono">
+                      {computed.otherRate !== null ? `${computed.otherRate}%` : "—"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-gray-600">
+              全社 {computed.companyPoints}pt + {computed.weight.otherType === "team" ? "チーム" : "個人"}{" "}
+              {computed.otherPoints}pt = 定量ポイント <span className="font-bold">{computed.quantPoints}</span>
+            </p>
           </section>
 
           {/* 定性 */}

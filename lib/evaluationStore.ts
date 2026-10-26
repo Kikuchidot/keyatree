@@ -23,6 +23,23 @@ export type QualItem = {
   monthlyScores: Record<string, number>;
 };
 
+/** 月別の目標値・結果値 */
+export type MonthlyTargetResult = { target: number; result: number };
+
+export type QuantitativeData = {
+  /** 月（"2026-07"）→ 全社の目標値・結果値 */
+  companyMonthly: Record<string, MonthlyTargetResult>;
+  /** 月（"2026-07"）→ 個人/チームの目標値・結果値 */
+  otherMonthly: Record<string, MonthlyTargetResult>;
+  /** 旧形式（期間合算値）。月別入力がない場合のフォールバック */
+  companyTarget?: number;
+  companyResult?: number;
+  otherTarget?: number;
+  otherResult?: number;
+  /** 自動取込元の定量目標シートrecordId */
+  sourceRecordIds: string[];
+};
+
 export type EvaluationRecord = {
   id: string;
   periodId: string;
@@ -35,14 +52,7 @@ export type EvaluationRecord = {
   currentGokyu: number;
   /** ①現状基本給 */
   currentSalary: number;
-  quantitative: {
-    companyTarget: number;
-    companyResult: number;
-    otherTarget: number;
-    otherResult: number;
-    /** 自動取込元の定量目標シートrecordId */
-    sourceRecordIds: string[];
-  };
+  quantitative: QuantitativeData;
   qualitative: QualItem[];
   /** 手動調整額（③-②） */
   adjustment: number;
@@ -54,6 +64,21 @@ export type EvaluationRecord = {
   createdAt: string;
   updatedAt: string;
 };
+
+/** 読み込み時に旧形式を正規化する（companyMonthly/otherMonthly を保証） */
+function normalizeRecord(record: EvaluationRecord): EvaluationRecord {
+  const q = (record.quantitative || {}) as QuantitativeData;
+  return {
+    ...record,
+    quantitative: {
+      ...q,
+      companyMonthly: q.companyMonthly || {},
+      otherMonthly: q.otherMonthly || {},
+      sourceRecordIds: q.sourceRecordIds || [],
+    },
+    qualitative: record.qualitative || [],
+  };
+}
 
 const BUCKET = "evaluations";
 const PERIOD_PREFIX = "periods/";
@@ -212,16 +237,21 @@ export async function listEvaluationRecords(periodId?: string): Promise<Evaluati
     records = getMemoryStore<EvaluationRecord>("records");
   }
   const filtered = periodId ? records.filter((r) => r.periodId === periodId) : records;
-  return filtered.sort((a, b) => a.employeeName.localeCompare(b.employeeName, "ja"));
+  return filtered
+    .map(normalizeRecord)
+    .sort((a, b) => a.employeeName.localeCompare(b.employeeName, "ja"));
 }
 
 export async function getEvaluationRecord(id: string): Promise<EvaluationRecord | null> {
+  let record: EvaluationRecord | null = null;
   if (isSupabaseEnabled()) {
     const supabase = getSupabaseAdmin();
     await ensureBucket(supabase);
-    return await getJson<EvaluationRecord>(supabase, recordPath(id));
+    record = await getJson<EvaluationRecord>(supabase, recordPath(id));
+  } else {
+    record = getMemoryStore<EvaluationRecord>("records").find((r) => r.id === id) ?? null;
   }
-  return getMemoryStore<EvaluationRecord>("records").find((r) => r.id === id) ?? null;
+  return record ? normalizeRecord(record) : record;
 }
 
 export async function saveEvaluationRecord(record: EvaluationRecord): Promise<EvaluationRecord> {
