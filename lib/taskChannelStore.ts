@@ -1,5 +1,6 @@
 import { getSupabaseAdmin, isSupabaseEnabled } from "@/lib/supabaseServer";
 import { deleteTask, listTasks } from "@/lib/taskServerStore";
+import { ALL_MENTION_ID, ALL_MENTION_NAME } from "@/lib/mentions";
 
 /**
  * タスク管理のチャンネル / トークを Supabase Storage に JSON として永続化する。
@@ -743,6 +744,19 @@ export type UnreadSummary = {
   channelItems: { id: string; name: string; unread: number; talkId?: string; talkName?: string; lastMessageId?: string; lastMessageAt?: string }[];
   /** 未読があるDM（未読多い順） */
   dmItems: { id: string; talkId?: string; peerName: string; unread: number; lastMessageId?: string; lastMessageAt?: string }[];
+  /** 自分宛・@全員 のメンション通知（未読分のみ。新しい順） */
+  mentionItems: {
+    messageId: string;
+    talkId: string;
+    channelId: string;
+    channelName: string;
+    talkName: string;
+    isDm: boolean;
+    peerName?: string;
+    authorName: string;
+    text: string;
+    createdAt: string;
+  }[];
 };
 
 /**
@@ -751,7 +765,7 @@ export type UnreadSummary = {
  * （チャンネルメンバーが空の初期チャンネルは全員が閲覧可能とみなす）
  */
 export async function computeUnread(memberId: string): Promise<UnreadSummary> {
-  const empty: UnreadSummary = { byTalk: {}, byChannel: {}, total: 0, channelItems: [], dmItems: [] };
+  const empty: UnreadSummary = { byTalk: {}, byChannel: {}, total: 0, channelItems: [], dmItems: [], mentionItems: [] };
   if (!memberId) return empty;
   const [channels, talks, reads] = await Promise.all([
     allActiveChannels(),
@@ -763,6 +777,7 @@ export async function computeUnread(memberId: string): Promise<UnreadSummary> {
   const byChannel: Record<string, number> = {};
   const channelItems: UnreadSummary["channelItems"] = [];
   const dmItems: UnreadSummary["dmItems"] = [];
+  const mentionItems: UnreadSummary["mentionItems"] = [];
   let total = 0;
 
   for (const talk of talks) {
@@ -779,17 +794,40 @@ export async function computeUnread(memberId: string): Promise<UnreadSummary> {
     }
     const lastRead = reads[talk.id] ?? "";
     const messages = await listTalkMessages(talk.id);
-    const count = messages.filter((m) => m.authorId !== memberId && m.createdAt > lastRead).length;
+    const unreadMsgs = messages.filter((m) => m.authorId !== memberId && m.createdAt > lastRead);
+    const count = unreadMsgs.length;
     if (count === 0) continue;
     byTalk[talk.id] = count;
     byChannel[channel.id] = (byChannel[channel.id] ?? 0) + count;
     total += count;
     // 通知のトリガーとなった最新メッセージ（未読分の中で最後のもの）
-    const trigger = messages
-      .filter((m) => m.authorId !== memberId && m.createdAt > lastRead)
-      .reduce<TalkMessage | null>((latest, m) => (!latest || m.createdAt > latest.createdAt ? m : latest), null);
+    const trigger = unreadMsgs.reduce<TalkMessage | null>(
+      (latest, m) => (!latest || m.createdAt > latest.createdAt ? m : latest),
+      null
+    );
+    // 自分宛 or @全員 のメンションを抽出（過去に保存漏れした @全員 は本文の "@全員" でも拾う）
+    const peer = isDm ? (channel.members.find((m) => m.id !== memberId) ?? channel.members[0]) : undefined;
+    for (const m of unreadMsgs) {
+      const ids = (m.mentions ?? []).map((x) => x.id);
+      const mentioned =
+        ids.includes(memberId) ||
+        ids.includes(ALL_MENTION_ID) ||
+        (m.text ?? "").includes(`@${ALL_MENTION_NAME}`);
+      if (!mentioned) continue;
+      mentionItems.push({
+        messageId: m.id,
+        talkId: talk.id,
+        channelId: channel.id,
+        channelName: channel.name,
+        talkName: talk.name,
+        isDm,
+        peerName: peer?.name,
+        authorName: m.authorName,
+        text: (m.text || (m.attachments?.length ? "[添付ファイル]" : "")).slice(0, 120),
+        createdAt: m.createdAt,
+      });
+    }
     if (isDm) {
-      const peer = channel.members.find((m) => m.id !== memberId) ?? channel.members[0];
       dmItems.push({
         id: channel.id,
         talkId: talk.id,
@@ -814,5 +852,6 @@ export async function computeUnread(memberId: string): Promise<UnreadSummary> {
   const desc = (a: { unread: number }, b: { unread: number }) => b.unread - a.unread;
   channelItems.sort(desc);
   dmItems.sort(desc);
-  return { byTalk, byChannel, total, channelItems, dmItems };
+  mentionItems.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  return { byTalk, byChannel, total, channelItems, dmItems, mentionItems };
 }

@@ -11,6 +11,7 @@ import {
   updateTalkMessageText,
 } from "@/lib/taskChannelStore";
 import { uploadAttachments } from "@/lib/attachmentStorage";
+import { ALL_MENTION_ID, ALL_MENTION_NAME } from "@/lib/mentions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -111,12 +112,18 @@ export async function POST(request: Request, ctx: Ctx) {
       return NextResponse.json({ error: "本文・ファイル・引用のいずれかを入力してください" }, { status: 400 });
     }
 
-    // メンションはトークルームの参加メンバーのみ有効にする
+    // メンションはトークルームの参加メンバー + @全員 のみ有効にする
     const memberMap = new Map(talk.members.map((m) => [m.id, m.name]));
     const mentions = Array.isArray(body.mentions)
       ? body.mentions
-          .filter((m): m is { id: string; name?: string } => Boolean(m?.id) && memberMap.has(m.id as string))
-          .map((m) => ({ id: m.id, name: memberMap.get(m.id) ?? m.name ?? "" }))
+          .filter(
+            (m): m is { id: string; name?: string } =>
+              Boolean(m?.id) && (m.id === ALL_MENTION_ID || memberMap.has(m.id as string))
+          )
+          .map((m) => ({
+            id: m.id,
+            name: m.id === ALL_MENTION_ID ? ALL_MENTION_NAME : (memberMap.get(m.id) ?? m.name ?? ""),
+          }))
       : undefined;
 
     // 引用: 参照元メッセージをサーバー側で解決してスナップショット化（改ざん防止）

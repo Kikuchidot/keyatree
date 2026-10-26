@@ -7,6 +7,18 @@ type UnreadData = {
   total: number;
   channelItems: { id: string; name: string; unread: number; talkId?: string; talkName?: string; lastMessageId?: string }[];
   dmItems: { id: string; talkId?: string; peerName: string; unread: number; lastMessageId?: string }[];
+  mentionItems: {
+    messageId: string;
+    talkId: string;
+    channelId: string;
+    channelName: string;
+    talkName: string;
+    isDm: boolean;
+    peerName?: string;
+    authorName: string;
+    text: string;
+    createdAt: string;
+  }[];
 };
 
 /** 通知から対象トーク＋トリガーメッセージへ直接ジャンプするURL */
@@ -18,10 +30,16 @@ function jumpUrl(channelId: string, talkId?: string, lastMessageId?: string, isD
   return `/tasks/channels?${p.toString()}`;
 }
 
+function fmtTime(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 /**
- * マイページ向け: チャット（チャンネル・トーク・DM）の未読サマリーを表示する。
- * 未読が0件のときはパネル自体を表示しない。
- * 通知を押すと、未読の発生したトークルームを開き、トリガーとなったメッセージまでスクロールする。
+ * マイページ向け: チャット（チャンネル・トーク・DM）の未読サマリーと
+ * 自分宛・@全員のメンション通知を表示する。
+ * 通知を押すと、対象トークルームを開き、該当メッセージまでスクロールする。
  */
 export default function ChatUnreadPanel() {
   const [data, setData] = useState<UnreadData | null>(null);
@@ -44,7 +62,8 @@ export default function ChatUnreadPanel() {
     };
   }, []);
 
-  if (!data || data.total === 0) return null;
+  const mentions = data?.mentionItems ?? [];
+  if (!data || (data.total === 0 && mentions.length === 0)) return null;
 
   return (
     <div className="max-w-5xl mx-auto px-4 pt-4">
@@ -69,6 +88,41 @@ export default function ChatUnreadPanel() {
           チャットを開く（{data.total}件）
         </Link>
       </div>
+
+      {/* メンション通知（自分宛・@全員） */}
+      {mentions.length > 0 && (
+        <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+          <p className="text-xs font-bold text-emerald-700 mb-2">メンション通知（{mentions.length}件）</p>
+          <div className="space-y-1.5">
+            {mentions.slice(0, 8).map((m) => (
+              <Link
+                key={m.messageId}
+                href={jumpUrl(m.channelId, m.talkId, m.messageId, m.isDm)}
+                target="_blank"
+                className="flex items-start gap-2 rounded-lg bg-white border border-emerald-100 px-3 py-2 hover:border-emerald-300 transition"
+              >
+                <span className="mt-0.5 flex-shrink-0 text-[10px] font-bold text-white bg-emerald-500 rounded px-1.5 py-0.5">
+                  @
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-gray-800 truncate">
+                    <span className="font-bold">{m.authorName}</span>
+                    <span className="text-gray-400"> ｜ </span>
+                    <span className="text-gray-600">
+                      {m.isDm ? `DM: ${m.peerName ?? ""}` : `${m.channelName} / ${m.talkName}`}
+                    </span>
+                    <span className="text-gray-400"> ｜ {fmtTime(m.createdAt)}</span>
+                  </p>
+                  <p className="text-xs text-gray-600 truncate">{m.text}</p>
+                </div>
+              </Link>
+            ))}
+            {mentions.length > 8 && (
+              <p className="text-[11px] text-emerald-600 px-1">ほか {mentions.length - 8} 件のメンションがあります</p>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-1.5">
         {data.channelItems.slice(0, 5).map((c) => (

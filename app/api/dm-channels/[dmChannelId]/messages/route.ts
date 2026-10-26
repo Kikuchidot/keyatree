@@ -12,6 +12,7 @@ import {
   updateTalkMessageText,
 } from "@/lib/taskChannelStore";
 import { uploadAttachments } from "@/lib/attachmentStorage";
+import { ALL_MENTION_ID, ALL_MENTION_NAME } from "@/lib/mentions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -97,8 +98,14 @@ export async function POST(request: Request, ctx: Ctx) {
     const memberMap = new Map(talk.members.map((m) => [m.id, m.name]));
     const mentions = Array.isArray(body.mentions)
       ? body.mentions
-          .filter((m): m is { id: string; name?: string } => Boolean(m?.id) && memberMap.has(m.id as string))
-          .map((m) => ({ id: m.id, name: memberMap.get(m.id) ?? m.name ?? "" }))
+          .filter(
+            (m): m is { id: string; name?: string } =>
+              Boolean(m?.id) && (m.id === ALL_MENTION_ID || memberMap.has(m.id as string))
+          )
+          .map((m) => ({
+            id: m.id,
+            name: m.id === ALL_MENTION_ID ? ALL_MENTION_NAME : (memberMap.get(m.id) ?? m.name ?? ""),
+          }))
       : undefined;
 
     const message = await addTalkMessage({
