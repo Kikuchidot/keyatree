@@ -80,6 +80,17 @@ function fmt(iso: string) {
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+/** 未読状態変更を同じブラウザの他タブ・他ページへ即時通知する */
+function broadcastUnreadChanged() {
+  try {
+    const bc = new BroadcastChannel("kt-unread-changed");
+    bc.postMessage({ t: Date.now() });
+    bc.close();
+  } catch {
+    /* BroadcastChannel 未対応環境では無視 */
+  }
+}
+
 /** 未読数バッジ（0件は非表示） */
 function UnreadBadge({ count }: { count: number }) {
   if (!count) return null;
@@ -618,7 +629,9 @@ export default function ChannelsWorkspacePage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ talkId }),
-    }).catch(() => {});
+    })
+      .then(() => broadcastUnreadChanged())
+      .catch(() => {});
     setUnread((prev) => {
       if (!prev.byTalk[talkId]) return prev;
       const byTalk = { ...prev.byTalk };
@@ -636,12 +649,24 @@ export default function ChannelsWorkspacePage() {
 
   /**
    * 指定メッセージ以降を未読に戻す。
-   * サイドバーのバッジ・マイページの未読通知が即座に復活するよう、
-   * サーバー更新後に未読集計を再取得する。
+   * バッジはサーバー往復を待たず楽観反映で即表示し、
+   * サーバー更新後に未読集計を再取得して補正する。
+   * 他タブ（マイページ等）へも即時通知する。
    */
-  const markUnreadFrom = async (m: TalkMessage) => {
+  const markUnreadFrom = async (m: TalkMessage, optimisticCount?: number) => {
     if (!m.talkId) return;
     suppressAutoReadRef.current = m.talkId;
+    // 楽観反映: 即座にバッジを表示
+    const cur = selectionRef.current;
+    const chId = cur?.type === "talk" ? cur.channelId : cur?.type === "dm" ? cur.dmChannelId : "";
+    const count = Math.max(1, optimisticCount ?? 1);
+    if (chId) {
+      setUnread((prev) => {
+        const byTalk = { ...prev.byTalk, [m.talkId!]: (prev.byTalk[m.talkId!] ?? 0) + count };
+        const byChannel = { ...prev.byChannel, [chId]: (prev.byChannel[chId] ?? 0) + count };
+        return { byTalk, byChannel, total: prev.total + count };
+      });
+    }
     try {
       await fetch("/api/task-channels/unread", {
         method: "POST",
@@ -651,17 +676,27 @@ export default function ChannelsWorkspacePage() {
     } catch {
       /* ignore */
     }
+    broadcastUnreadChanged();
     loadUnread();
   };
 
   useEffect(() => {
     loadUnread();
-    const timer = setInterval(loadUnread, 30000);
+    const timer = setInterval(loadUnread, 15000);
     const onFocus = () => loadUnread();
     window.addEventListener("focus", onFocus);
+    // 他タブ・他ページでの未読状態変更を即時反映
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel("kt-unread-changed");
+      bc.onmessage = () => loadUnread();
+    } catch {
+      /* ignore */
+    }
     return () => {
       clearInterval(timer);
       window.removeEventListener("focus", onFocus);
+      bc?.close();
     };
   }, [loadUnread]);
 
@@ -1416,7 +1451,7 @@ function TalkView({
   highlightMessageId?: string | null;
   clearHighlight?: () => void;
   /** 指定メッセージ以降を未読に戻す */
-  onMarkUnread: (m: TalkMessage) => void;
+  onMarkUnread: (m: TalkMessage, optimisticCount?: number) => void;
   onTalkUpdated: (t: Talk) => void;
 }) {
   const [tab, setTab] = useState<"chat" | "tasks" | "members">("chat");
@@ -1941,7 +1976,7 @@ function TalkView({
                                 <button onClick={() => deleteMessage(m.id)} className="text-[11px] text-gray-500 hover:text-rose-400">削除</button>
                               )}
                             </span>
-                            <button onClick={() => onMarkUnread(m)} className="text-[11px] font-semibold text-amber-600 hover:text-amber-500 border border-amber-200 hover:border-amber-400 rounded-md px-2 py-0.5 transition flex-shrink-0" title="このメッセージ以降を未読に戻す">
+                            <button onClick={() => onMarkUnread(m, messages.filter((x) => x.createdAt >= m.createdAt).length)} className="text-[11px] font-semibold text-amber-600 hover:text-amber-500 border border-amber-200 hover:border-amber-400 rounded-md px-2 py-0.5 transition flex-shrink-0" title="このメッセージ以降を未読に戻す">
                               未読に戻す
                             </button>
                           </div>
@@ -3319,7 +3354,7 @@ function DmView({
   highlightMessageId?: string | null;
   clearHighlight?: () => void;
   /** 指定メッセージ以降を未読に戻す */
-  onMarkUnread: (m: TalkMessage) => void;
+  onMarkUnread: (m: TalkMessage, optimisticCount?: number) => void;
   onMessageSent: () => void;
 }) {
   const [messages, setMessages] = useState<TalkMessage[]>([]);
@@ -3678,7 +3713,7 @@ function DmView({
                           {mine && m.text && <button onClick={() => dmStartEdit(m)} className="text-[11px] text-gray-500 hover:text-sky-400">編集</button>}
                           {mine && <button onClick={() => deleteMessage(m.id)} className="text-[11px] text-gray-500 hover:text-rose-400">削除</button>}
                         </span>
-                        <button onClick={() => onMarkUnread(m)} className="text-[11px] font-semibold text-amber-600 hover:text-amber-500 border border-amber-200 hover:border-amber-400 rounded-md px-2 py-0.5 transition flex-shrink-0" title="このメッセージ以降を未読に戻す">
+                        <button onClick={() => onMarkUnread(m, messages.filter((x) => x.createdAt >= m.createdAt).length)} className="text-[11px] font-semibold text-amber-600 hover:text-amber-500 border border-amber-200 hover:border-amber-400 rounded-md px-2 py-0.5 transition flex-shrink-0" title="このメッセージ以降を未読に戻す">
                           未読に戻す
                         </button>
                       </div>

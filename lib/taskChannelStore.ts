@@ -819,21 +819,27 @@ export async function computeUnread(memberId: string): Promise<UnreadSummary> {
   const mentionItems: UnreadSummary["mentionItems"] = [];
   let total = 0;
 
-  for (const talk of talks) {
+  // アクセス可能なトークだけに絞ってから、メッセージを並列取得する。
+  // （トークごとに直列 await するとRTT×トーク数で数十秒かかり、未読反映が遅延する）
+  const visibleTalks = talks.filter((talk) => {
     const channel = channelById.get(talk.channelId);
-    if (!channel) continue;
+    if (!channel) return false;
     const isDm = channel.type === "dm";
     const memberOfChannel = channel.members.some((m) => m.id === memberId);
     const memberOfTalk = talk.members.some((m) => m.id === memberId);
     // アクセス権: DMはチャンネル参加者のみ。通常チャンネルは参加者 or メンバー未設定のチャンネル
-    if (isDm) {
-      if (!memberOfChannel) continue;
-    } else if (!memberOfChannel && !memberOfTalk && channel.members.length > 0) {
-      continue;
-    }
+    if (isDm) return memberOfChannel;
+    return memberOfChannel || memberOfTalk || channel.members.length === 0;
+  });
+  const messagesByTalk = await Promise.all(visibleTalks.map((talk) => listTalkMessages(talk.id)));
+
+  for (let ti = 0; ti < visibleTalks.length; ti++) {
+    const talk = visibleTalks[ti];
+    const messages = messagesByTalk[ti];
+    const channel = channelById.get(talk.channelId)!;
+    const isDm = channel.type === "dm";
     const lastRead = reads[talk.id] ?? "";
     const manualUnreadFrom = reads[manualUnreadKey(talk.id)] ?? "";
-    const messages = await listTalkMessages(talk.id);
     const unreadMsgs = messages.filter(
       (m) => m.createdAt > lastRead && (m.authorId !== memberId || (manualUnreadFrom && m.createdAt >= manualUnreadFrom))
     );

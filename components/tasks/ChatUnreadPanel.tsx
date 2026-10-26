@@ -55,10 +55,22 @@ export default function ChatUnreadPanel() {
         .catch(() => {});
     };
     load();
-    const timer = setInterval(load, 60000);
+    const timer = setInterval(load, 15000);
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    // チャット画面で未読状態が変わったら即時反映（同一ブラウザのタブ間通知）
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel("kt-unread-changed");
+      bc.onmessage = () => load();
+    } catch {
+      /* BroadcastChannel 未対応環境では無視 */
+    }
     return () => {
       alive = false;
       clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      bc?.close();
     };
   }, []);
 
