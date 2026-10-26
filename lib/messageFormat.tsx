@@ -6,6 +6,40 @@ import type { CSSProperties, ReactNode } from "react";
 
 type Member = { id: string; name: string };
 
+// URL検出（https?://）。末尾の句読点等はURLに含めない
+const URL_RE = /(https?:\/\/[^\s<>"'）」】\]]+)/g;
+
+export function extractFirstUrl(text: string): string | null {
+  const m = (text ?? "").match(URL_RE);
+  return m ? m[0] : null;
+}
+
+/** プレーンテキスト内のURLをリンク化し、それ以外はメンション装飾して返す */
+function renderTextRuns(text: string, members: Member[], meId: string, keyPrefix: string): ReactNode[] {
+  const parts = text.split(URL_RE);
+  // split with capture group: 偶数index=通常テキスト, 奇数index=URL
+  const nodes: ReactNode[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) {
+      const url = parts[i];
+      nodes.push(
+        <a
+          key={`${keyPrefix}-url${i}`}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sky-600 hover:text-sky-500 underline break-all"
+        >
+          {url}
+        </a>
+      );
+    } else if (parts[i]) {
+      nodes.push(...renderMentionRuns(parts[i], members, meId, `${keyPrefix}-r${i}`));
+    }
+  }
+  return nodes;
+}
+
 // sanitize済みstyle文字列をReactのstyleオブジェクトに変換
 function spanStyleObject(style: string): CSSProperties {
   const obj: CSSProperties = {};
@@ -55,7 +89,7 @@ function renderInline(text: string, members: Member[], meId: string, keyPrefix: 
   let k = 0;
   const flush = () => {
     if (buf) {
-      nodes.push(...renderMentionRuns(buf, members, meId, `${keyPrefix}-r${k++}`));
+      nodes.push(...renderTextRuns(buf, members, meId, `${keyPrefix}-r${k++}`));
       buf = "";
     }
   };
@@ -132,7 +166,7 @@ function renderInline(text: string, members: Member[], meId: string, keyPrefix: 
         flush();
         nodes.push(
           <strong key={`${keyPrefix}-bi${k++}`} className="font-bold italic">
-            {renderMentionRuns(text.slice(i + 3, end), members, meId, `${keyPrefix}-bii${k}`)}
+            {renderTextRuns(text.slice(i + 3, end), members, meId, `${keyPrefix}-bii${k}`)}
           </strong>
         );
         i = end + 3;
@@ -146,7 +180,7 @@ function renderInline(text: string, members: Member[], meId: string, keyPrefix: 
         flush();
         nodes.push(
           <strong key={`${keyPrefix}-b${k++}`} className="font-bold">
-            {renderMentionRuns(text.slice(i + 2, end), members, meId, `${keyPrefix}-bb${k}`)}
+            {renderTextRuns(text.slice(i + 2, end), members, meId, `${keyPrefix}-bb${k}`)}
           </strong>
         );
         i = end + 2;
@@ -160,7 +194,7 @@ function renderInline(text: string, members: Member[], meId: string, keyPrefix: 
         flush();
         nodes.push(
           <em key={`${keyPrefix}-i${k++}`} className="italic">
-            {renderMentionRuns(text.slice(i + 1, end), members, meId, `${keyPrefix}-ii${k}`)}
+            {renderTextRuns(text.slice(i + 1, end), members, meId, `${keyPrefix}-ii${k}`)}
           </em>
         );
         i = end + 1;
@@ -174,7 +208,7 @@ function renderInline(text: string, members: Member[], meId: string, keyPrefix: 
         flush();
         nodes.push(
           <mark key={`${keyPrefix}-h${k++}`} className="bg-yellow-300/80 text-zinc-900 rounded px-0.5">
-            {renderMentionRuns(text.slice(i + 2, end), members, meId, `${keyPrefix}-hh${k}`)}
+            {renderTextRuns(text.slice(i + 2, end), members, meId, `${keyPrefix}-hh${k}`)}
           </mark>
         );
         i = end + 2;

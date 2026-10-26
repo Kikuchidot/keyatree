@@ -7,7 +7,8 @@ import AddMembersModal from "@/components/tasks/AddMembersModal";
 import CreateTaskModal from "@/components/tasks/CreateTaskModal";
 import MentionTextarea from "@/components/tasks/MentionTextarea";
 import { extractMentions } from "@/lib/mentions";
-import { renderRichMessage } from "@/lib/messageFormat";
+import { renderRichMessage, extractFirstUrl } from "@/lib/messageFormat";
+import LinkPreviewCard from "@/components/tasks/LinkPreviewCard";
 import { resizeImageToDataUrl, fileToDataUrl } from "@/lib/clientImage";
 import { STATUS_CONFIG, formatDeadline, type FullTask } from "@/lib/taskStore";
 import { apiListTasks } from "@/lib/taskClient";
@@ -1874,7 +1875,10 @@ function TalkView({
                               </div>
                             </div>
                           ) : m.text ? (
-                            <div className="mt-0.5 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-800 break-words">{renderRichMessage(m.text, talk.members, meId)}</div>
+                            <div className="mt-0.5 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-800 break-words">
+                              {renderRichMessage(m.text, talk.members, meId)}
+                              {extractFirstUrl(m.text) && <LinkPreviewCard url={extractFirstUrl(m.text)!} />}
+                            </div>
                           ) : null}
                           <div className="mt-1 flex items-center gap-2 flex-wrap">
                             {reactions.map((r) => (
@@ -3394,6 +3398,7 @@ function DmView({
                       ) : m.text ? (
                         <div className="mt-0.5 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-800 break-words whitespace-pre-wrap">
                           {renderRichMessage(m.text, dmMembers, meId)}
+                          {extractFirstUrl(m.text) && <LinkPreviewCard url={extractFirstUrl(m.text)!} />}
                         </div>
                       ) : null}
                       <div className="mt-1 flex items-center gap-2 flex-wrap">
