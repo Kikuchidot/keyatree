@@ -1,7 +1,7 @@
 "use client";
 
 import { segmentMentions, ALL_MENTION_ID } from "@/lib/mentions";
-import { sanitizeSpanStyle } from "@/lib/richText";
+import { sanitizeSpanStyle, findSpanClose } from "@/lib/richText";
 import type { CSSProperties, ReactNode } from "react";
 
 type Member = { id: string; name: string };
@@ -60,11 +60,11 @@ function renderInline(text: string, members: Member[], meId: string, keyPrefix: 
     }
   };
   while (i < text.length) {
-    // <span style="...">...</span>（sanitize済みのスタイルのみ適用）
+    // <span style="...">...</span>（sanitize済みのスタイルのみ適用。ネスト対応）
     if (text.startsWith('<span style="', i)) {
       const m = text.slice(i).match(/^<span style="([^"]*)">/);
       if (m) {
-        const end = text.indexOf("</span>", i + m[0].length);
+        const end = findSpanClose(text, i + m[0].length);
         if (end !== -1) {
           flush();
           const inner = text.slice(i + m[0].length, end);

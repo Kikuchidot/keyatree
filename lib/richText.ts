@@ -48,6 +48,41 @@ export function sanitizeSpanStyle(style: string): string {
 const SPAN_OPEN_RE = /^<span style="([^"]*)">/;
 
 /**
+ * ネストした <span style="...">...</span> に対応する閉じタグの位置を
+ * 深さ追跡で探す（単純な indexOf だと内側の </span> を誤って拾うため）。
+ * 見つからなければ -1 を返す。
+ */
+export function findSpanClose(text: string, contentStart: number): number {
+  let depth = 1;
+  let i = contentStart;
+  while (i < text.length) {
+    const close = text.indexOf("</span>", i);
+    if (close === -1) return -1;
+    const open = text.indexOf('<span style="', i);
+    if (open !== -1 && open < close) {
+      depth++;
+      i = open + 1;
+    } else {
+      depth--;
+      if (depth === 0) return close;
+      i = close + "</span>".length;
+    }
+  }
+  return -1;
+}
+
+/**
+ * メンションのライブ装飾（.kt-mention-live / .kt-mention-all）由来の
+ * スタイル漏れを検出する指紋。ツールバーのカラーパレットには含まれない色のため、
+ * これらが inline style に現れた場合は contenteditable のスタイル継承による
+ * 漏れ（後続入力への装飾混入）と判定できる。
+ */
+export const MENTION_LEAK_COLOR_RE =
+  /^(#0369a1|#059669|rgb\(\s*3\s*,\s*105\s*,\s*161\s*\)|rgb\(\s*5\s*,\s*150\s*,\s*105\s*\))$/i;
+export const MENTION_LEAK_BG_RE =
+  /^rgba\(\s*(14\s*,\s*165\s*,\s*233\s*,\s*0?\.12|16\s*,\s*185\s*,\s*129\s*,\s*0?\.10?)\s*\)$/i;
+
+/**
  * インライン記法をHTMLに変換。
  * Markdown記法に加えて <u> / <s> / <span style="..."> のホワイトリスト済みHTMLタグも解釈する。
  * テキスト部分はすべてHTMLエスケープされる。
@@ -60,7 +95,7 @@ export function inlineToHtml(raw: string): string {
     if (raw.startsWith('<span style="', i)) {
       const m = raw.slice(i).match(SPAN_OPEN_RE);
       if (m) {
-        const end = raw.indexOf("</span>", i + m[0].length);
+        const end = findSpanClose(raw, i + m[0].length);
         if (end !== -1) {
           const inner = raw.slice(i + m[0].length, end);
           const safe = sanitizeSpanStyle(m[1]);
@@ -224,10 +259,11 @@ function applyInlineStyles(s: string, node: HTMLElement): string {
   const color = node.style.color || (node.tagName.toLowerCase() === "font" ? (node as HTMLFontElement).color : "");
   const bg = node.style.backgroundColor;
   const fs = node.style.fontSize;
-  if (bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") {
+  // メンション装飾のスタイル漏れ（後続入力への混入）は装飾として保存しない
+  if (bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)" && !MENTION_LEAK_BG_RE.test(bg)) {
     styles.push(`background-color: ${bg}`);
   }
-  if (color && !DEFAULT_COLOR_RE.test(color)) {
+  if (color && !DEFAULT_COLOR_RE.test(color) && !MENTION_LEAK_COLOR_RE.test(color)) {
     styles.push(`color: ${color}`);
   }
   if (fs && fs !== "medium") {

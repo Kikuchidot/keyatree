@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent, type ClipboardEvent } from "react";
-import { markdownToHtml, domToMarkdown } from "@/lib/richText";
+import { markdownToHtml, domToMarkdown, MENTION_LEAK_COLOR_RE, MENTION_LEAK_BG_RE } from "@/lib/richText";
 import { ALL_MENTION_ID, ALL_MENTION_NAME } from "@/lib/mentions";
 import {
   Bold,
@@ -179,6 +179,43 @@ export default function MentionTextarea({
     if (md === "" && el.innerHTML !== "") el.innerHTML = "";
     lastSerialized.current = md;
     onChange(md);
+  };
+
+  /**
+   * contenteditable のスタイル継承により、メンション装飾（.kt-mention-live）の
+   * 色・背景が直後に入力したテキストへ inline style として漏れることがある。
+   * 漏れたスタイルはパレットに存在しない色で一意に識別できるため、
+   * .kt-mention-live 以外の要素から該当プロパティを除去する。
+   * （テキストノードや構造は触らないのでキャレット位置は維持される）
+   */
+  const stripLeakedMentionStyles = () => {
+    const el = ref.current;
+    if (!el) return;
+    el.querySelectorAll<HTMLElement>("span, font, b, strong, i, em, u, s").forEach((node) => {
+      if (node.classList.contains("kt-mention-live")) return;
+      let touched = false;
+      if (node.style.color && MENTION_LEAK_COLOR_RE.test(node.style.color)) {
+        node.style.color = "";
+        touched = true;
+      }
+      if (node.style.backgroundColor && MENTION_LEAK_BG_RE.test(node.style.backgroundColor)) {
+        node.style.backgroundColor = "";
+        touched = true;
+      }
+      if (node.tagName.toLowerCase() === "font") {
+        const c = (node as HTMLFontElement).color;
+        if (c && MENTION_LEAK_COLOR_RE.test(c)) {
+          (node as HTMLFontElement).removeAttribute("color");
+          touched = true;
+        }
+      }
+      if (!touched) return;
+      // 漏れは color/背景/font-weight がセットで複製されるため、太字も併せて除去する
+      // （ユーザーが意図した太字のみの要素は color/背景を含まないので影響しない）
+      const fw = node.style.fontWeight;
+      if (fw === "bold" || Number(fw) >= 600) node.style.fontWeight = "";
+      if (node.getAttribute("style") === "") node.removeAttribute("style");
+    });
   };
 
   // ---- 入力中メンションのライブ装飾 ----
@@ -576,6 +613,7 @@ export default function MentionTextarea({
         aria-multiline="true"
         data-placeholder={placeholder}
         onInput={() => {
+          stripLeakedMentionStyles();
           serialize();
           detect();
           decorateLiveMention();
