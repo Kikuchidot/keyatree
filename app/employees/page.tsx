@@ -36,6 +36,7 @@ export default function EmployeeListPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState("");
   const [session, setSession] = useState<SessionInfo | null>(null);
+  const [showRetired, setShowRetired] = useState(false);
 
   useEffect(() => {
     setSession(parseCookieSession());
@@ -145,7 +146,10 @@ export default function EmployeeListPage() {
       e.position.includes(search);
     const matchTeam = team === "すべて" || e.team === team;
     const matchRank = !isAdmin || rank === "すべて" || e.evaluationRank === rank;
-    return matchSearch && matchTeam && matchRank;
+    // 退職したスタッフはチェックを入れたときのみ表示
+    const isRetired = (e.employmentType || "").includes("退職");
+    const matchRetired = showRetired || !isRetired;
+    return matchSearch && matchTeam && matchRank && matchRetired;
   });
 
   return (
@@ -185,6 +189,15 @@ export default function EmployeeListPage() {
               {rankOptions.map((r) => <option key={r} value={r}>評価ランク：{r}</option>)}
             </select>
           )}
+          <label className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showRetired}
+              onChange={(e) => setShowRetired(e.target.checked)}
+              className="w-4 h-4 accent-emerald-500"
+            />
+            退職したスタッフを表示
+          </label>
         </div>
 
         {/* 件数 */}
@@ -212,10 +225,11 @@ export default function EmployeeListPage() {
             {filtered.map((emp) => {
               const canView = canViewRankGrade(emp);
               const rc = rankColors[emp.evaluationRank] ?? rankColors["C"];
+              const isRetired = (emp.employmentType || "").includes("退職");
               return (
                 <div
                   key={emp.id}
-                  className="bg-white rounded-2xl border shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden group"
+                  className={`bg-white rounded-2xl border shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden group ${isRetired ? "opacity-60" : ""}`}
                 >
                   {/* カードヘッダー（ランク色帯は本人・管理者のみ） */}
                   {canView && (

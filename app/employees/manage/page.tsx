@@ -18,10 +18,12 @@ type EditForm = {
 export default function StaffManagePage() {
   const [search, setSearch] = useState("");
   const [teamFilter, setTeamFilter] = useState("すべて");
+  const [includeRetired, setIncludeRetired] = useState(false);
   const [allEmployees, setAllEmployees] = useState<Employee[]>(employees);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [form, setForm] = useState<EditForm | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [masters, setMasters] = useState<Masters>({});
   const [mastersLoading, setMastersLoading] = useState(true);
@@ -71,8 +73,39 @@ export default function StaffManagePage() {
       (e.team ?? "").includes(q) ||
       (e.position ?? "").includes(q);
     const matchTeam = teamFilter === "すべて" || e.team === teamFilter;
-    return matchSearch && matchTeam;
+    const isRetired = (e.employmentType || "").includes("退職");
+    const matchRetired = includeRetired || !isRetired;
+    return matchSearch && matchTeam && matchRetired;
   });
+
+  async function handleDelete(emp: Employee) {
+    if (
+      !window.confirm(
+        `【削除の最終確認】\n${emp.name} さんをスタッフ管理から完全に削除します。\nこの操作は取り消せません。よろしいですか？`
+      )
+    )
+      return;
+    if (
+      !window.confirm(
+        `本当に削除しますか？\n削除対象: ${emp.name}（${emp.employmentType || "雇用形態未設定"}）`
+      )
+    )
+      return;
+    setDeletingId(emp.id);
+    setError("");
+    try {
+      const res = await fetch(`/api/staff/${emp.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d?.error ?? "削除に失敗しました");
+      }
+      setAllEmployees((prev) => prev.filter((e) => e.id !== emp.id));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   const openEdit = (emp: Employee) => {
     setEditing(emp);
@@ -143,6 +176,15 @@ export default function StaffManagePage() {
           >
             {teamOptions.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
+          <label className="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includeRetired}
+              onChange={(e) => setIncludeRetired(e.target.checked)}
+              className="w-4 h-4 accent-emerald-500"
+            />
+            退職したスタッフを表示
+          </label>
         </div>
 
         <p className="text-xs text-gray-500 font-bold">{filtered.length} 名表示中</p>
@@ -152,32 +194,52 @@ export default function StaffManagePage() {
           <div className="hidden md:grid grid-cols-[1.6fr_1.4fr_0.9fr_0.7fr_0.7fr_auto] gap-3 px-5 py-3 bg-gray-50 border-b text-xs font-bold text-gray-500">
             <span>氏名</span>
             <span>所属チーム</span>
-            <span>役職</span>
+            <span>役職/ステージ</span>
             <span>グレード</span>
             <span>評価</span>
             <span className="text-right">操作</span>
           </div>
           <ul className="divide-y divide-gray-100">
-            {filtered.map((e) => (
-              <li key={e.id} className="grid grid-cols-2 md:grid-cols-[1.6fr_1.4fr_0.9fr_0.7fr_0.7fr_auto] gap-2 md:gap-3 px-5 py-3 items-center text-sm hover:bg-gray-50/70 transition">
-                <div className="min-w-0">
-                  <Link href={`/employees/${e.id}`} className="font-bold text-gray-800 hover:text-emerald-600 truncate block">{e.name}</Link>
-                  <span className="text-[11px] text-gray-400 truncate block">{e.nameKana}</span>
-                </div>
-                <span className="text-gray-600 truncate">{e.team || <span className="text-gray-300">未設定</span>}</span>
-                <span className="text-gray-600 truncate">{e.position || <span className="text-gray-300">-</span>}</span>
-                <span className="text-gray-700 font-medium">{e.grade || "-"}</span>
-                <span className="text-gray-700 font-medium">{e.evaluationRank || "-"}</span>
-                <div className="text-right col-span-2 md:col-span-1">
-                  <button
-                    onClick={() => openEdit(e)}
-                    className="text-xs bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 font-bold px-3 py-1.5 rounded-lg transition"
-                  >
-                    編集
-                  </button>
-                </div>
-              </li>
-            ))}
+            {filtered.map((e) => {
+              const isRetired = (e.employmentType || "").includes("退職");
+              return (
+                <li
+                  key={e.id}
+                  className={`grid grid-cols-2 md:grid-cols-[1.6fr_1.4fr_0.9fr_0.7fr_0.7fr_auto] gap-2 md:gap-3 px-5 py-3 items-center text-sm hover:bg-gray-50/70 transition ${isRetired ? "opacity-60" : ""}`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <Link href={`/employees/${e.id}`} className="font-bold text-gray-800 hover:text-emerald-600 truncate">{e.name}</Link>
+                      {isRetired && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-500 border border-gray-300 whitespace-nowrap">退職</span>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-gray-400 truncate block">{e.nameKana}</span>
+                  </div>
+                  <span className="text-gray-600 truncate">{e.team || <span className="text-gray-300">未設定</span>}</span>
+                  <span className="text-gray-600 truncate">{e.position || <span className="text-gray-300">-</span>}</span>
+                  <span className="text-gray-700 font-medium">{e.grade || "-"}</span>
+                  <span className="text-gray-700 font-medium">{e.evaluationRank || "-"}</span>
+                  <div className="text-right col-span-2 md:col-span-1">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        onClick={() => openEdit(e)}
+                        className="text-xs bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100 font-bold px-3 py-1.5 rounded-lg transition"
+                      >
+                        編集
+                      </button>
+                      <button
+                        onClick={() => handleDelete(e)}
+                        disabled={deletingId === e.id}
+                        className="text-xs bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 font-bold px-3 py-1.5 rounded-lg transition disabled:opacity-50"
+                      >
+                        {deletingId === e.id ? "削除中..." : "削除"}
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
             {filtered.length === 0 && (
               <li className="px-5 py-10 text-center text-sm text-gray-400">該当するスタッフがいません。</li>
             )}
@@ -205,13 +267,13 @@ export default function StaffManagePage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-semibold text-gray-600 mb-1 block">役職</label>
+                  <label className="text-xs font-semibold text-gray-600 mb-1 block">役職/ステージ</label>
                   <select value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className={inputCls} disabled={mastersLoading}>
                     {masterSelectOptions(masters, "position").map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-gray-600 mb-1 block">等級/グレード</label>
+                  <label className="text-xs font-semibold text-gray-600 mb-1 block">グレード</label>
                   <select value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} className={inputCls} disabled={mastersLoading}>
                     {masterSelectOptions(masters, "grade").map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>

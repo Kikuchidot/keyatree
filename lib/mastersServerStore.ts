@@ -105,7 +105,17 @@ export async function getMasters(): Promise<Masters> {
     // 後から追加したマスターキー（evaluationRank など）は既定値で補完する
     const merged: Masters = { ...defaultMasters, ...saved };
     for (const key of Object.keys(defaultMasters)) {
-      if (!Array.isArray(merged[key])) merged[key] = defaultMasters[key];
+      if (!Array.isArray(merged[key])) {
+        merged[key] = defaultMasters[key];
+        continue;
+      }
+      // 既存キーでも、既定値に後から追加した項目（例: 雇用形態の「退職」）を補完する
+      const labels = new Set(merged[key].map((item) => item.label));
+      for (const def of defaultMasters[key]) {
+        if (!labels.has(def.label)) {
+          merged[key] = [...merged[key], { ...def, id: `${def.id}_auto` }];
+        }
+      }
     }
     return merged;
   } catch {
