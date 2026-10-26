@@ -97,9 +97,10 @@ def test_01_api_reply_and_quote(env):
     assert quoted.get("quote", {}).get("messageId") == parent["id"], f"quoteが解決されていない: {quoted}"
     assert quoted["quote"]["authorName"], "引用元の投稿者名が空"
 
-    # 後片付け
-    for mid in (reply["id"], quoted["id"], parent["id"]):
-        env["client_a"].delete(f"/api/dm-channels/{env['dm_id']}/messages?messageId={mid}")
+    # 後片付け（自分の投稿のみ削除可能なので投稿者ごとのクライアントで削除）
+    for mid in (reply["id"], quoted["id"]):
+        env["client_b"].delete(f"/api/dm-channels/{env['dm_id']}/messages?messageId={mid}")
+    env["client_a"].delete(f"/api/dm-channels/{env['dm_id']}/messages?messageId={parent['id']}")
 
 
 def test_02_ui_reply_and_quote_and_toolbar(env, browser: Browser):
@@ -163,9 +164,98 @@ def test_02_ui_reply_and_quote_and_toolbar(env, browser: Browser):
                 quote_msg_id = m["id"]
     finally:
         ctx.close()
-        for mid in (reply_msg_id, quote_msg_id, parent["id"]):
+        # 自分の投稿のみ削除可能なので投稿者ごとのクライアントで削除
+        for mid in (reply_msg_id, quote_msg_id):
             if mid:
                 try:
-                    env["client_a"].delete(f"/api/dm-channels/{env['dm_id']}/messages?messageId={mid}")
+                    env["client_b"].delete(f"/api/dm-channels/{env['dm_id']}/messages?messageId={mid}")
                 except Exception:
                     pass
+        try:
+            env["client_a"].delete(f"/api/dm-channels/{env['dm_id']}/messages?messageId={parent['id']}")
+        except Exception:
+            pass
+
+
+def test_03_cannot_delete_others_message(env):
+    """API: 他者の投稿は削除できない（403）、自分の投稿は削除できる"""
+    # A が投稿 → B が削除を試みる → 403
+    r = env["client_a"].post(
+        f"/api/dm-channels/{env['dm_id']}/messages",
+        json={"text": "削除権限テスト（Aの投稿）"},
+    )
+    assert r.status_code == 200, r.text
+    msg = r.json()["message"]
+
+    r = env["client_b"].delete(f"/api/dm-channels/{env['dm_id']}/messages?messageId={msg['id']}")
+    assert r.status_code == 403, f"他者の投稿が削除できてしまう: {r.status_code} {r.text}"
+
+    # 本人は削除できる
+    r = env["client_a"].delete(f"/api/dm-channels/{env['dm_id']}/messages?messageId={msg['id']}")
+    assert r.status_code == 200, f"自分の投稿が削除できない: {r.status_code} {r.text}"
+
+    d = env["client_a"].get(f"/api/dm-channels/{env['dm_id']}/messages").json()
+    assert all(m["id"] != msg["id"] for m in d.get("messages", [])), "削除が反映されていない"
+
+
+CH_NAME = "TEST-削除権限チャンネル"
+
+
+def test_04_channel_cannot_delete_others_message(env, browser: Browser):
+    """チャンネル: 他者の投稿はAPIでもUIでも削除できない"""
+    r = env["client_a"].get("/api/task-channels")
+    for c in (r.json().get("channels") or []) + (r.json().get("archivedChannels") or []):
+        if c.get("name") == CH_NAME:
+            env["client_a"].delete(f"/api/task-channels/{c['id']}")
+
+    r = env["client_a"].post(
+        "/api/task-channels",
+        json={"name": CH_NAME, "members": [{"id": env["acc_b"]["employeeId"], "name": env["acc_b"]["name"]}]},
+    )
+    assert r.status_code == 200, r.text
+    channel = r.json()["channel"]
+    r = env["client_a"].post(
+        f"/api/task-channels/{channel['id']}/talks",
+        json={"name": "TEST-削除権限ルーム", "members": [{"id": env["acc_b"]["employeeId"], "name": env["acc_b"]["name"]}]},
+    )
+    assert r.status_code == 200, r.text
+    talk = r.json()["talk"]
+    r = env["client_a"].post(
+        f"/api/task-channels/{channel['id']}/talks/{talk['id']}/messages",
+        json={"text": "削除権限テストのチャンネル投稿"},
+    )
+    assert r.status_code == 200, r.text
+    msg = r.json()["message"]
+
+    ctx = browser.new_context(viewport={"width": 1600, "height": 900})
+    ctx.add_cookies([{"name": "kt_session", "value": cookie_value(env["acc_b"]), "url": env["base_url"]}])
+    page = ctx.new_page()
+    try:
+        # --- API: B が削除を試みる → 403 ---
+        r = env["client_b"].delete(
+            f"/api/task-channels/{channel['id']}/talks/{talk['id']}/messages/{msg['id']}"
+        )
+        assert r.status_code == 403, f"他者の投稿が削除できてしまう: {r.status_code} {r.text}"
+
+        # --- UI: B の画面で他者の投稿に削除ボタンが出ない ---
+        page.goto(f"{env['base_url']}/tasks/channels", wait_until="domcontentloaded")
+        ch_btn = page.locator(f"aside button:has-text('{CH_NAME}')").first
+        expect(ch_btn).to_be_visible(timeout=60000)
+        ch_btn.click()
+        talk_span = page.locator("aside span:has-text('TEST-削除権限ルーム')").first
+        expect(talk_span).to_be_visible(timeout=30000)
+        talk_span.click()
+        row = page.locator("div[data-message-id]", has_text="削除権限テストのチャンネル投稿").first
+        expect(row).to_be_visible(timeout=30000)
+        row.hover()
+        assert row.locator("button:has-text('削除')").count() == 0, "他者の投稿に削除ボタンが表示されている"
+        # 未読に戻す等の他の操作は引き続き使える
+        expect(row.locator("button:has-text('未読に戻す')")).to_be_attached(timeout=10000)
+        page.screenshot(path=".verdent/testing/screenshots/no_delete_others.png", full_page=False)
+    finally:
+        ctx.close()
+        try:
+            env["client_a"].delete(f"/api/task-channels/{channel['id']}/talks/{talk['id']}/messages/{msg['id']}")
+            env["client_a"].delete(f"/api/task-channels/{channel['id']}")
+        except Exception:
+            pass

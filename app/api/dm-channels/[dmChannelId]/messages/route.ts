@@ -175,6 +175,14 @@ export async function DELETE(request: Request, ctx: Ctx) {
     const url = new URL(request.url);
     const messageId = url.searchParams.get("messageId");
     if (!messageId) return NextResponse.json({ error: "messageId is required" }, { status: 400 });
+    // 自分の投稿のみ削除可能（他者の投稿は削除不可）
+    const meId = auth.session.employeeId || auth.session.id || "";
+    const messages = await listTalkMessages(auth.talk.id);
+    const target = messages.find((m) => m.id === messageId);
+    if (!target) return NextResponse.json({ error: "メッセージが見つかりません" }, { status: 404 });
+    if (target.authorId !== meId) {
+      return NextResponse.json({ error: "自分のメッセージのみ削除できます" }, { status: 403 });
+    }
     await deleteTalkMessage(auth.talk.id, messageId);
     return NextResponse.json({ ok: true });
   } catch (err) {

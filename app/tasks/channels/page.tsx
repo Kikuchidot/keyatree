@@ -1905,7 +1905,7 @@ function TalkView({
                               {mine && m.text && (
                                 <button onClick={() => startEdit(m)} className="text-[11px] text-gray-500 hover:text-sky-400">編集</button>
                               )}
-                              {(mine || canManage) && (
+                              {mine && (
                                 <button onClick={() => deleteMessage(m.id)} className="text-[11px] text-gray-500 hover:text-rose-400">削除</button>
                               )}
                               <button onClick={() => onMarkUnread(m)} className="text-[11px] text-gray-500 hover:text-amber-500" title="このメッセージ以降を未読に戻す">
