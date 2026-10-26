@@ -169,6 +169,8 @@ export default async function FeaturesPage() {
   const showGoalAssignments = canApprove(session);
   const showAccountsAdmin = isGoalAdmin(session);
   const showMastersAdmin = canApprove(session);
+  const showEvaluationAdmin =
+    session?.permissionId === "admin" || session?.permissionId === "hr_manager";
 
   const grouped = categoryOrder.map((category) => ({
     category,
@@ -502,6 +504,54 @@ export default async function FeaturesPage() {
                           </span>
                         </div>
                         <span className="text-xs font-bold text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                          開く →
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              ) : null}
+
+              {category === "管理・運用" && showEvaluationAdmin ? (
+                <Link href="/evaluations" className="block">
+                  <div className="group h-full bg-gradient-to-br from-cyan-50 to-white rounded-2xl border border-cyan-200 shadow-sm overflow-hidden transition-all duration-200 hover:shadow-lg hover:-translate-y-1 hover:border-cyan-300 cursor-pointer">
+                    <div className="p-5 h-full flex flex-col">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-xl bg-cyan-100 flex items-center justify-center flex-shrink-0 border border-white shadow-sm">
+                            <span className="text-sm font-black text-cyan-700">
+                              評価
+                            </span>
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-black text-gray-800 leading-tight">
+                              人事評価管理
+                            </h3>
+                            <span className="text-[10px] font-mono font-bold text-gray-400">
+                              EVAL
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-1 rounded-full border bg-cyan-100 text-cyan-700 border-cyan-200">
+                          管理者・人事管理者向け
+                        </span>
+                      </div>
+
+                      <p className="mt-4 text-xs text-gray-500 leading-relaxed flex-1">
+                        定量・定性目標の結果から人事評価を自動算出し、確認・手動修正のうえ確定します。
+                        獲得ランク（S〜E）に応じた号俸ポイントから基本給を算出し、月給改定を確定できます。
+                      </p>
+
+                      <div className="mt-4 pt-4 border-t border-cyan-100 flex items-center justify-between">
+                        <div className="flex gap-1.5 flex-wrap">
+                          <span className="text-[10px] bg-cyan-100 text-cyan-700 px-2 py-1 rounded-md font-medium">
+                            自動算出
+                          </span>
+                          <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded-md font-medium">
+                            権限者のみ
+                          </span>
+                        </div>
+                        <span className="text-xs font-bold text-cyan-700 opacity-0 group-hover:opacity-100 transition-opacity">
                           開く →
                         </span>
                       </div>
