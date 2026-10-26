@@ -37,7 +37,8 @@ export default function ChatUnreadPanel() {
   if (!data || data.total === 0) return null;
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border p-5">
+    <div className="max-w-5xl mx-auto px-4 pt-4">
+      <div className="bg-white rounded-2xl shadow-sm border p-5">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="w-8 h-8 rounded-lg bg-rose-500 flex items-center justify-center text-white text-sm font-bold">
@@ -95,6 +96,7 @@ export default function ChatUnreadPanel() {
             ほか {data.channelItems.length + data.dmItems.length - 10} 件の未読があります
           </p>
         )}
+      </div>
       </div>
     </div>
   );
