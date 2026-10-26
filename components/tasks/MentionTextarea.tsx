@@ -227,6 +227,9 @@ export default function MentionTextarea({
 
   /**
    * 手入力で「@名前 」(完全一致 + 区切りの空白) が完成した瞬間に着色する。
+   * 名前に空白を含むメンバー（例: 「田中 花子」）にも対応するため、
+   * キャレット直前の空白まで遡って最後の「@」を探し、そこから空白までの
+   * 文字列がメンバー名と完全一致した場合に装飾する。
    * 装飾は表示専用（className のみ）で、シリアライズ結果は変わらない。
    */
   const decorateLiveMention = () => {
@@ -242,13 +245,25 @@ export default function MentionTextarea({
     const text = tn.textContent ?? "";
     if (caret > text.length) return;
     const before = text.slice(0, caret);
-    const m = before.match(/(^|\s)@([^\s@]+)[ \u3000]$/);
-    if (!m) return;
-    const name = m[2];
+    // 直近の入力が区切りの空白であること（contenteditableでは末尾空白が&nbsp;に置換される点に注意）
+    if (!/[ \u3000\xa0]$/.test(before)) return;
+    const atSearch = before.slice(0, before.length - 1);
+    // 最大30文字まで遡って最後の「@」を探す
+    let atIdx = -1;
+    for (let i = atSearch.length - 1; i >= Math.max(0, atSearch.length - 30); i--) {
+      if (atSearch[i] === "@") {
+        atIdx = i;
+        break;
+      }
+    }
+    if (atIdx === -1) return;
+    // 「@」の直前は先頭 or 空白であること（メールアドレス等の誤検知防止）
+    if (atIdx > 0 && !/\s/.test(atSearch[atIdx - 1])) return;
+    const name = atSearch.slice(atIdx + 1);
+    if (!name) return;
     const isAll = name === ALL_MENTION_NAME;
     if (!isAll && !members.some((x) => x.name === name)) return;
-    // 「@」の開始位置（グループ1の空白分を除く）
-    const start = before.length - name.length - 1 - m[1].length;
+    const start = atIdx;
     if (start < 0) return;
     const caretOff = textOffsetOf(el, tn, caret);
     try {
