@@ -3,7 +3,9 @@ import { getServerSession } from "@/lib/goalNavigatorStore";
 import {
   getChannel,
   getDmTalk,
+  getTalk,
   saveTalk,
+  isChannelMember,
   listTalkMessages,
   addTalkMessage,
   toggleTalkReaction,
@@ -56,10 +58,12 @@ export async function POST(request: Request, ctx: Ctx) {
     const { session, channel, talk } = auth;
     const body = (await request.json()) as {
       text?: string;
+      parentId?: string;
       reactionMessageId?: string;
       emoji?: string;
       mentions?: { id?: string; name?: string }[];
       attachments?: { name?: string; dataUrl?: string; type?: string; size?: number }[];
+      quote?: { messageId?: string; talkId?: string; channelId?: string };
     };
     const authorId = session.employeeId ?? session.id ?? "";
     const authorName = session.name ?? "不明";
@@ -91,8 +95,45 @@ export async function POST(request: Request, ctx: Ctx) {
     // まだ data URL のものがあれば Supabase Storage にアップロード
     const attachments = await uploadAttachments(rawAttachments, channel.id, talk.id);
 
-    if (!text && attachments.length === 0) {
-      return NextResponse.json({ error: "メッセージを入力してください" }, { status: 400 });
+    if (!text && attachments.length === 0 && !body.quote?.messageId) {
+      return NextResponse.json({ error: "本文・ファイル・引用のいずれかを入力してください" }, { status: 400 });
+    }
+
+    // 引用: 参照元メッセージをサーバー側で解決してスナップショット化（改ざん防止）
+    let quote: {
+      messageId: string;
+      talkId: string;
+      channelId: string;
+      talkName?: string;
+      authorName: string;
+      text: string;
+      createdAt?: string;
+    } | undefined;
+    const q = body.quote;
+    if (q?.messageId && q?.talkId && q?.channelId) {
+      const srcChannel = await getChannel(q.channelId);
+      const srcTalk = await getTalk(q.talkId);
+      if (srcChannel && srcTalk && srcTalk.channelId === q.channelId) {
+        const isDmSrc = (srcChannel as typeof srcChannel & { type?: string }).type === "dm";
+        const canAccessSrc =
+          session.permissionId === "admin" ||
+          (isDmSrc ? srcChannel.members.some((m) => m.id === authorId) : isChannelMember(srcChannel, session));
+        if (canAccessSrc) {
+          const srcMessages = await listTalkMessages(q.talkId);
+          const src = srcMessages.find((m) => m.id === q.messageId);
+          if (src) {
+            quote = {
+              messageId: src.id,
+              talkId: q.talkId,
+              channelId: q.channelId,
+              talkName: srcTalk.name,
+              authorName: src.authorName,
+              text: (src.text || (src.attachments?.length ? "[画像]" : "")).slice(0, 500),
+              createdAt: src.createdAt,
+            };
+          }
+        }
+      }
     }
 
     const memberMap = new Map(talk.members.map((m) => [m.id, m.name]));
@@ -114,8 +155,10 @@ export async function POST(request: Request, ctx: Ctx) {
       authorId,
       authorName,
       text,
+      parentId: body.parentId,
       mentions,
       attachments,
+      quote,
     });
     await saveTalk(talk);
     return NextResponse.json({ message });

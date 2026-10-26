@@ -3071,7 +3071,20 @@ function DmView({
   const [dmEditingId, setDmEditingId] = useState<string | null>(null);
   const [dmEditingText, setDmEditingText] = useState("");
   const [dmEditSaving, setDmEditSaving] = useState(false);
+  // スレッド返信
+  const [dmReplyTo, setDmReplyTo] = useState<string | null>(null);
+  const [dmReplyText, setDmReplyText] = useState("");
+  const [dmReplySending, setDmReplySending] = useState(false);
+  const [dmReplyAttachments, setDmReplyAttachments] = useState<TalkAttachmentT[]>([]);
+  // 引用
+  const [dmQuoteDraft, setDmQuoteDraft] = useState<TalkQuote | null>(null);
+  const [showDmQuotePicker, setShowDmQuotePicker] = useState(false);
+  // ファイル検索
+  const [showDmFileSearch, setShowDmFileSearch] = useState(false);
+  // メッセージAPIから返るDMのトークID（引用のルーム判定用）
+  const [dmTalkId, setDmTalkId] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const dmReplyFileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const dmMembers = [{ id: peer.id, name: peer.name }, ...(meName ? [{ id: meId, name: meName }] : [])];
 
@@ -3079,7 +3092,10 @@ function DmView({
     setLoading(true);
     fetch(`/api/dm-channels/${dmChannelId}/messages`)
       .then((r) => r.json())
-      .then((d) => setMessages(d?.messages ?? []))
+      .then((d) => {
+        setMessages(d?.messages ?? []);
+        if (d?.talkId) setDmTalkId(d.talkId);
+      })
       .catch(() => setMessages([]))
       .finally(() => setLoading(false));
   }, [dmChannelId]);
@@ -3109,7 +3125,7 @@ function DmView({
 
   const send = async () => {
     const t = text.trim();
-    if ((!t && attachments.length === 0) || sending) return;
+    if ((!t && attachments.length === 0 && !dmQuoteDraft) || sending) return;
     setSending(true);
     try {
       const uploadedAttachments = attachments.length > 0
@@ -3119,13 +3135,21 @@ function DmView({
       const res = await fetch(`/api/dm-channels/${dmChannelId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: t, mentions, attachments: uploadedAttachments }),
+        body: JSON.stringify({
+          text: t,
+          mentions,
+          attachments: uploadedAttachments,
+          quote: dmQuoteDraft
+            ? { messageId: dmQuoteDraft.messageId, talkId: dmQuoteDraft.talkId, channelId: dmQuoteDraft.channelId }
+            : undefined,
+        }),
       });
       const d = await res.json();
       if (res.ok && d.message) {
         setMessages((prev) => [...prev, d.message]);
         setText("");
         setAttachments([]);
+        setDmQuoteDraft(null);
         onMessageSent();
       } else {
         alert(d?.error ?? "送信に失敗しました");
@@ -3133,6 +3157,47 @@ function DmView({
     } finally {
       setSending(false);
     }
+  };
+
+  const sendDmReply = async (parentId: string) => {
+    const t = dmReplyText.trim();
+    if ((!t && dmReplyAttachments.length === 0) || dmReplySending) return;
+    setDmReplySending(true);
+    try {
+      const uploadedAttachments = dmReplyAttachments.length > 0
+        ? await uploadAttachmentsToStorage(dmReplyAttachments, dmChannelId, dmChannelId)
+        : [];
+      const mentions = extractMentions(t, dmMembers);
+      const res = await fetch(`/api/dm-channels/${dmChannelId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: t, parentId, mentions, attachments: uploadedAttachments }),
+      });
+      const d = await res.json();
+      if (res.ok && d.message) {
+        setMessages((prev) => [...prev, d.message]);
+        setDmReplyText("");
+        setDmReplyAttachments([]);
+        setDmReplyTo(null);
+        onMessageSent();
+      } else {
+        alert(d?.error ?? "返信に失敗しました");
+      }
+    } finally {
+      setDmReplySending(false);
+    }
+  };
+
+  const dmQuoteMessage = (m: TalkMessage) => {
+    setDmQuoteDraft({
+      messageId: m.id,
+      talkId: dmTalkId || dmChannelId,
+      channelId: dmChannelId,
+      talkName: "ダイレクトチャット",
+      authorName: m.authorName,
+      text: (m.text || (m.attachments?.length ? "[画像]" : "")).slice(0, 500),
+      createdAt: m.createdAt,
+    });
   };
 
   const toggleReaction = async (id: string, emoji: string) => {
@@ -3195,17 +3260,18 @@ function DmView({
   const [dmIsDragging, setDmIsDragging] = useState(false);
   const dmDragCounter = useRef(0);
 
-  const addFiles = async (files: File[]) => {
+  const addFiles = async (files: File[], target: "main" | "reply" = "main") => {
     setDmAttachError("");
+    const setter = target === "main" ? setAttachments : setDmReplyAttachments;
     const errors: string[] = [];
     for (const f of files) {
       try {
         if (f.type.startsWith("image/")) {
           const dataUrl = await resizeImageToDataUrl(f);
-          setAttachments((prev) => [...prev, { name: f.name, dataUrl, type: f.type, size: f.size }].slice(0, 6));
+          setter((prev) => [...prev, { name: f.name, dataUrl, type: f.type, size: f.size }].slice(0, 6));
         } else if (f.size <= 50 * 1024 * 1024) {
           const dataUrl = await fileToDataUrl(f);
-          setAttachments((prev) => [...prev, { name: f.name, dataUrl, type: f.type, size: f.size }].slice(0, 6));
+          setter((prev) => [...prev, { name: f.name, dataUrl, type: f.type, size: f.size }].slice(0, 6));
         } else {
           errors.push(`${f.name || "ファイル"}は50MBを超えています`);
         }
@@ -3230,7 +3296,10 @@ function DmView({
     dmDragCounter.current = 0;
     setDmIsDragging(false);
     const files = Array.from(e.dataTransfer?.files ?? []);
-    if (files.length > 0) addFiles(files);
+    if (files.length === 0) return;
+    // ドロップ位置が開いている返信フォーム内なら返信の添付へ
+    const dropInReply = (e.target as HTMLElement).closest?.("[data-reply-form]");
+    addFiles(files, dropInReply && dmReplyTo ? "reply" : "main");
   };
 
   return (
@@ -3260,6 +3329,13 @@ function DmView({
           <h1 className="text-base font-bold text-gray-800 truncate">{peer.name}</h1>
           <p className="text-[11px] text-gray-500">ダイレクトチャット</p>
         </div>
+        <button
+          onClick={() => setShowDmFileSearch(true)}
+          className="ml-auto flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-indigo-500 border border-gray-300 hover:border-indigo-500 rounded-lg transition"
+          title="このダイレクトチャットのファイルを検索"
+        >
+          📎 ファイル検索
+        </button>
       </div>
 
       {/* メッセージ一覧 */}
@@ -3274,74 +3350,171 @@ function DmView({
               <p className="text-sm text-gray-500 mt-1">下のメッセージ欄から最初のメッセージを送信してください。</p>
             </div>
           ) : (
-            messages.map((m) => {
-              const mine = m.authorId === meId;
-              const reactions = m.reactions ?? [];
-              return (
-                <div key={m.id} data-message-id={m.id} className="flex gap-3 group">
-                  <span className={`w-8 h-8 rounded-full ${colorFor(m.authorId)} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
-                    {m.authorName.charAt(0)}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[13px] font-bold text-gray-800">{m.authorName}</span>
-                      <span className="text-[11px] text-gray-500">{fmt(m.createdAt)}</span>
-                      {m.editedAt && <span className="text-[10px] text-gray-400" title={`編集: ${fmt(m.editedAt)}`}>✏️ 編集済み {fmt(m.editedAt)}</span>}
-                    </div>
-                    <AttachmentViewer attachments={m.attachments} messageId={m.id} isMine={mine} onDeleteAttachment={deleteAttachment} />
-                    {dmEditingId === m.id ? (
-                      <div className="mt-0.5">
-                        <textarea
-                          autoFocus
-                          value={dmEditingText}
-                          onChange={(e) => setDmEditingText(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Escape") dmCancelEdit();
-                            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") dmSaveEdit();
-                          }}
-                          className="w-full rounded-lg border border-indigo-400 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
-                          rows={3}
-                        />
-                        <div className="mt-1 flex items-center gap-2">
-                          <button onClick={dmSaveEdit} disabled={dmEditSaving} className="text-xs font-bold text-white bg-indigo-500 hover:bg-indigo-600 px-3 py-1 rounded-lg transition disabled:opacity-50">
-                            {dmEditSaving ? "保存中..." : "保存"}
-                          </button>
-                          <button onClick={dmCancelEdit} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1">キャンセル</button>
-                          <span className="text-[10px] text-gray-400 ml-auto">⌘+Enter で保存 / Esc でキャンセル</span>
+            (() => {
+              const posts = messages.filter((m) => !m.parentId);
+              const repliesOf = (pid: string) =>
+                messages.filter((m) => m.parentId === pid).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+              const renderDmRow = (m: TalkMessage, isReply: boolean) => {
+                const mine = m.authorId === meId;
+                const reactions = m.reactions ?? [];
+                return (
+                  <div key={m.id} data-message-id={m.id} className="flex gap-3 group">
+                    <span className={`${isReply ? "w-7 h-7 text-[11px]" : "w-8 h-8 text-xs"} rounded-full ${colorFor(m.authorId)} flex items-center justify-center text-white font-bold flex-shrink-0`}>
+                      {m.authorName.charAt(0)}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] font-bold text-gray-800">{m.authorName}</span>
+                        <span className="text-[11px] text-gray-500">{fmt(m.createdAt)}</span>
+                        {m.editedAt && <span className="text-[10px] text-gray-400" title={`編集: ${fmt(m.editedAt)}`}>✏️ 編集済み {fmt(m.editedAt)}</span>}
+                      </div>
+                      {renderQuote(m.quote, dmTalkId)}
+                      <AttachmentViewer attachments={m.attachments} messageId={m.id} isMine={mine} onDeleteAttachment={deleteAttachment} />
+                      {dmEditingId === m.id ? (
+                        <div className="mt-0.5">
+                          <textarea
+                            autoFocus
+                            value={dmEditingText}
+                            onChange={(e) => setDmEditingText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") dmCancelEdit();
+                              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") dmSaveEdit();
+                            }}
+                            className="w-full rounded-lg border border-indigo-400 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
+                            rows={3}
+                          />
+                          <div className="mt-1 flex items-center gap-2">
+                            <button onClick={dmSaveEdit} disabled={dmEditSaving} className="text-xs font-bold text-white bg-indigo-500 hover:bg-indigo-600 px-3 py-1 rounded-lg transition disabled:opacity-50">
+                              {dmEditSaving ? "保存中..." : "保存"}
+                            </button>
+                            <button onClick={dmCancelEdit} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1">キャンセル</button>
+                            <span className="text-[10px] text-gray-400 ml-auto">⌘+Enter で保存 / Esc でキャンセル</span>
+                          </div>
                         </div>
+                      ) : m.text ? (
+                        <div className="mt-0.5 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-800 break-words whitespace-pre-wrap">
+                          {renderRichMessage(m.text, dmMembers, meId)}
+                        </div>
+                      ) : null}
+                      <div className="mt-1 flex items-center gap-2 flex-wrap">
+                        {reactions.map((r) => (
+                          <button
+                            key={r.emoji}
+                            onClick={() => toggleReaction(m.id, r.emoji)}
+                            className={`text-[12px] px-2 py-0.5 rounded-full border transition ${
+                              r.userIds.includes(meId)
+                                ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-700"
+                                : "bg-gray-100 border-gray-300 text-gray-600 hover:border-gray-400"
+                            }`}
+                          >
+                            {r.emoji} {r.userIds.length}
+                          </button>
+                        ))}
+                        <span className="opacity-0 group-hover:opacity-100 transition flex items-center gap-2">
+                          <button onClick={() => toggleReaction(m.id, "👍")} className="text-[12px] text-gray-500 hover:text-indigo-400" title="いいね">👍</button>
+                          <button onClick={() => dmQuoteMessage(m)} className="text-[11px] font-bold text-sky-500 hover:text-sky-400" title="このメッセージを引用">
+                            引用
+                          </button>
+                          {mine && m.text && <button onClick={() => dmStartEdit(m)} className="text-[11px] text-gray-500 hover:text-sky-400">編集</button>}
+                          {mine && <button onClick={() => deleteMessage(m.id)} className="text-[11px] text-gray-500 hover:text-rose-400">削除</button>}
+                          <button onClick={() => onMarkUnread(m)} className="text-[11px] text-gray-500 hover:text-amber-500" title="このメッセージ以降を未読に戻す">
+                            未読に戻す
+                          </button>
+                        </span>
                       </div>
-                    ) : m.text ? (
-                      <div className="mt-0.5 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-800 break-words whitespace-pre-wrap">
-                        {renderRichMessage(m.text, dmMembers, meId)}
-                      </div>
-                    ) : null}
-                    <div className="mt-1 flex items-center gap-2 flex-wrap">
-                      {reactions.map((r) => (
-                        <button
-                          key={r.emoji}
-                          onClick={() => toggleReaction(m.id, r.emoji)}
-                          className={`text-[12px] px-2 py-0.5 rounded-full border transition ${
-                            r.userIds.includes(meId)
-                              ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-700"
-                              : "bg-gray-100 border-gray-300 text-gray-600 hover:border-gray-400"
-                          }`}
-                        >
-                          {r.emoji} {r.userIds.length}
-                        </button>
-                      ))}
-                      <span className="opacity-0 group-hover:opacity-100 transition flex items-center gap-2">
-                        <button onClick={() => toggleReaction(m.id, "👍")} className="text-[12px] text-gray-500 hover:text-indigo-400" title="いいね">👍</button>
-                        {mine && m.text && <button onClick={() => dmStartEdit(m)} className="text-[11px] text-gray-500 hover:text-sky-400">編集</button>}
-                        {mine && <button onClick={() => deleteMessage(m.id)} className="text-[11px] text-gray-500 hover:text-rose-400">削除</button>}
-                        <button onClick={() => onMarkUnread(m)} className="text-[11px] text-gray-500 hover:text-amber-500" title="このメッセージ以降を未読に戻す">
-                          未読に戻す
-                        </button>
-                      </span>
                     </div>
                   </div>
-                </div>
-              );
-            })
+                );
+              };
+              return posts.map((p) => {
+                const replies = repliesOf(p.id);
+                return (
+                  <div key={p.id} className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
+                    <div className="p-3">{renderDmRow(p, false)}</div>
+                    {replies.length > 0 && (
+                      <div className="border-t border-gray-200 px-4 py-3 space-y-3 bg-gray-50">
+                        {replies.map((r) => renderDmRow(r, true))}
+                      </div>
+                    )}
+                    <div className="border-t border-gray-200 px-4 py-2 bg-gray-100">
+                      {dmReplyTo === p.id ? (
+                        <div className="space-y-2" data-reply-form="true">
+                          {dmReplyAttachments.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {dmReplyAttachments.map((a, i) => (
+                                <div key={i} className="relative">
+                                  {isImageAttachment(a) ? (
+                                    /* eslint-disable-next-line @next/next/no-img-element */
+                                    <img src={a.dataUrl} alt={a.name || "添付"} className="h-16 w-16 object-cover rounded-lg border border-gray-300" />
+                                  ) : (
+                                    <div className="flex items-center gap-2 h-16 w-40 rounded-lg border border-gray-300 bg-gray-100 px-2">
+                                      <span className="text-xl flex-shrink-0">{fileIcon(a)}</span>
+                                      <span className="min-w-0">
+                                        <span className="block truncate text-[11px] text-gray-800">{a.name || "ファイル"}</span>
+                                        <span className="block text-[10px] text-gray-500">{formatBytes(a.size)}</span>
+                                      </span>
+                                    </div>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setDmReplyAttachments((prev) => prev.filter((_, j) => j !== i))}
+                                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white border border-gray-300 text-gray-600 text-xs hover:bg-rose-600 hover:text-white"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <input
+                            ref={dmReplyFileInputRef}
+                            type="file"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              const files = Array.from(e.target.files ?? []);
+                              if (files.length) addFiles(files, "reply");
+                              e.target.value = "";
+                            }}
+                          />
+                          <div className="rounded-lg border border-gray-300 bg-gray-50 p-2">
+                            <MentionTextarea
+                              autoFocus
+                              value={dmReplyText}
+                              onChange={setDmReplyText}
+                              members={dmMembers}
+                              onSubmit={() => sendDmReply(p.id)}
+                              onEscape={() => { setDmReplyTo(null); setDmReplyText(""); setDmReplyAttachments([]); }}
+                              onImageFiles={(files) => addFiles(files.filter((f) => f.type.startsWith("image/")), "reply")}
+                              showToolbar
+                              meId={meId}
+                              rows={2}
+                              placeholder="返信を入力（@でメンション・装飾ツールバー・画像はCtrl+Vで添付・⌘/Ctrl+Enterで送信）"
+                              className="w-full resize-none bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 max-h-40"
+                            />
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                              <button onClick={() => dmReplyFileInputRef.current?.click()} className="text-xs font-bold text-gray-600 hover:text-indigo-500 border border-gray-300 hover:border-indigo-500 px-3 py-1.5 rounded-lg transition">
+                                📎 ファイル
+                              </button>
+                              <div className="flex items-center gap-2">
+                                <button onClick={() => { setDmReplyTo(null); setDmReplyText(""); setDmReplyAttachments([]); }} className="text-xs text-gray-500 hover:text-gray-600 px-2 py-1.5">取消</button>
+                                <button onClick={() => sendDmReply(p.id)} disabled={dmReplySending || (!dmReplyText.trim() && dmReplyAttachments.length === 0)} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition disabled:opacity-50">
+                                  {dmReplySending ? "送信中" : "返信"}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <button onClick={() => { setDmReplyTo(p.id); setDmReplyText(""); setDmReplyAttachments([]); }} className="flex items-center gap-2 text-[13px] text-gray-500 hover:text-indigo-500 transition">
+                          <span className="text-indigo-400">↩</span> スレッドで返信{replies.length > 0 ? `（${replies.length}）` : ""}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              });
+            })()
           )}
         </div>
       </div>
@@ -3350,6 +3523,21 @@ function DmView({
       <div className="flex-shrink-0 border-t border-gray-200 p-3">
         <div className="max-w-2xl mx-auto">
           {dmAttachError && <p className="mb-1 text-xs text-rose-400">{dmAttachError}</p>}
+          {dmQuoteDraft && (
+            <div className="mb-2 flex items-start gap-2 border-l-2 border-sky-500/70 bg-gray-100 rounded-r-md px-3 py-1.5">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 text-[11px] text-sky-500">
+                  <span>❝ 引用</span>
+                  <span className="font-bold text-gray-700">{dmQuoteDraft.authorName}</span>
+                  {dmQuoteDraft.talkId !== (dmTalkId || dmChannelId) && dmQuoteDraft.talkName && (
+                    <span className="text-gray-500">＠{dmQuoteDraft.talkName}</span>
+                  )}
+                </div>
+                <p className="mt-0.5 text-[12px] text-gray-600 whitespace-pre-wrap break-words line-clamp-3">{dmQuoteDraft.text}</p>
+              </div>
+              <button type="button" onClick={() => setDmQuoteDraft(null)} className="flex-shrink-0 text-gray-500 hover:text-rose-400 text-xs">✕</button>
+            </div>
+          )}
           {attachments.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2">
               {attachments.map((a, i) => (
@@ -3402,20 +3590,45 @@ function DmView({
               members={dmMembers}
               onSubmit={send}
               onImageFiles={(files) => addFiles(files.filter((f) => f.type.startsWith("image/")))}
+              showToolbar
+              meId={meId}
               rows={1}
-              placeholder={`${peer.name} にメッセージを送信...`}
+              placeholder={`${peer.name} にメッセージを送信...（@でメンション・装飾ツールバー・画像はCtrl+Vで添付）`}
               className="flex-1 resize-none bg-gray-100 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 max-h-32"
             />
             <button
               onClick={send}
-              disabled={sending || (!text.trim() && attachments.length === 0)}
+              disabled={sending || (!text.trim() && attachments.length === 0 && !dmQuoteDraft)}
               className="flex-shrink-0 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold px-4 py-2 rounded-lg transition disabled:opacity-50"
             >
               {sending ? "..." : "送信"}
             </button>
           </div>
+          <div className="mt-1.5 flex items-center gap-2">
+            <button onClick={() => setShowDmQuotePicker(true)} className="text-[11px] font-bold text-gray-600 hover:text-sky-500 border border-gray-300 hover:border-sky-500 px-2.5 py-1 rounded-lg transition">
+              ❝ 他のトークから引用
+            </button>
+          </div>
         </div>
       </div>
+
+      {showDmQuotePicker && (
+        <QuotePicker
+          onClose={() => setShowDmQuotePicker(false)}
+          onPick={(q) => {
+            setDmQuoteDraft(q);
+            setShowDmQuotePicker(false);
+          }}
+        />
+      )}
+
+      {showDmFileSearch && (
+        <FileSearchModal
+          talkName={peer.name}
+          messages={messages}
+          onClose={() => setShowDmFileSearch(false)}
+        />
+      )}
     </div>
   );
 }
