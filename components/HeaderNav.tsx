@@ -3,8 +3,10 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { fetchMasters, getMasterItems, type MasterItem } from "@/lib/mastersStore";
 
 type Session = {
+  id?: string;
   name: string;
   email: string;
   permissionName: string;
@@ -19,11 +21,22 @@ function parseCookieSession(): Session | null {
   catch { return null; }
 }
 
+/** アクティビティ項目の色（既定の並び順に対応。追加した項目はグレー） */
+function activityColor(item: MasterItem): string {
+  if (item.order === 1) return "bg-emerald-500"; // 対応可能
+  if (item.order === 2) return "bg-rose-500"; // 取り込み中
+  if (item.order === 3) return "bg-rose-700"; // 応答不可
+  if (item.order === 4 || item.order === 5) return "bg-amber-400"; // 一時退席 / 離席中
+  return "bg-gray-400"; // オフライン表示 / カスタム
+}
+
 export default function HeaderNav({ currentLabel, extraRight }: { currentLabel?: string; extraRight?: React.ReactNode }) {
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [canGoBack, setCanGoBack] = useState(false);
+  const [activityItems, setActivityItems] = useState<MasterItem[]>([]);
+  const [myStatusId, setMyStatusId] = useState<string>("");
 
   useEffect(() => {
     setSession(parseCookieSession());
@@ -31,6 +44,35 @@ export default function HeaderNav({ currentLabel, extraRight }: { currentLabel?:
       setCanGoBack(window.history.length > 1);
     }
   }, []);
+
+  useEffect(() => {
+    if (!session) return;
+    fetchMasters()
+      .then((m) => setActivityItems(getMasterItems(m, "activityStatus")))
+      .catch(() => setActivityItems([]));
+    fetch(`/api/presence?_t=${Date.now()}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const p = d?.presence?.[session.id || session.employeeId || session.email];
+        setMyStatusId(p?.statusId ?? "");
+      })
+      .catch(() => {});
+  }, [session]);
+
+  const myStatus = activityItems.find((i) => i.id === myStatusId) ?? activityItems[0] ?? null;
+
+  const selectActivity = async (statusId: string) => {
+    setMyStatusId(statusId);
+    try {
+      await fetch("/api/presence", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ statusId }),
+      });
+    } catch {
+      /* 保存失敗時は表示のみ更新 */
+    }
+  };
 
   const handleBack = () => {
     if (typeof window !== "undefined" && window.history.length > 1) {
@@ -94,12 +136,23 @@ export default function HeaderNav({ currentLabel, extraRight }: { currentLabel?:
               onClick={() => setMenuOpen(!menuOpen)}
               className="flex items-center gap-2 hover:bg-gray-50 rounded-xl px-3 py-1.5 transition"
             >
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center flex-shrink-0">
-                <span className="text-white text-xs font-bold">{session.name.slice(0, 1)}</span>
+              <div className="relative flex-shrink-0">
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center">
+                  <span className="text-white text-xs font-bold">{session.name.slice(0, 1)}</span>
+                </div>
+                {myStatus && (
+                  <span
+                    data-testid="activity-dot"
+                    title={myStatus.label}
+                    className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${activityColor(myStatus)}`}
+                  />
+                )}
               </div>
               <div className="text-left hidden sm:block">
                 <p className="text-xs font-bold text-gray-700 leading-none">{session.name}</p>
-                <p className="text-xs text-gray-400 leading-none mt-0.5">{session.permissionName}</p>
+                <p className="text-xs text-gray-400 leading-none mt-0.5">
+                  {myStatus ? myStatus.label : session.permissionName}
+                </p>
               </div>
               <span className="text-gray-400 text-xs">▾</span>
             </button>
@@ -115,6 +168,26 @@ export default function HeaderNav({ currentLabel, extraRight }: { currentLabel?:
                   <p className="text-xs font-bold text-gray-700">{session.name}</p>
                   <p className="text-xs text-gray-400 font-mono mt-0.5 truncate">{session.email}</p>
                 </div>
+                {/* アクティビティ（在席状況）の選択 */}
+                {activityItems.length > 0 && (
+                  <div className="py-1 border-b">
+                    <p className="px-4 pt-1 pb-1 text-[10px] font-bold text-gray-400">アクティビティ</p>
+                    {activityItems.map((item) => (
+                      <button
+                        key={item.id}
+                        data-activity-id={item.id}
+                        onClick={() => selectActivity(item.id)}
+                        className={`w-full flex items-center gap-3 px-4 py-2 text-sm transition ${
+                          item.id === myStatusId ? "bg-emerald-50 text-emerald-700 font-bold" : "text-gray-600 hover:bg-gray-50"
+                        }`}
+                      >
+                        <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${activityColor(item)}`} />
+                        <span className="flex-1 text-left">{item.label}</span>
+                        {item.id === myStatusId && <span className="text-emerald-600 text-xs">✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="py-1">
                   {session.employeeId && (
                     <Link

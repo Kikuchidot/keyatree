@@ -13,6 +13,7 @@ const tabConfig = [
   { key: "evaluationRank", label: "評価ランク", desc: "人事評価のランク区分（S・A・B・C・D・E など）" },
   { key: "jobType", label: "職種", desc: "スタッフの職種区分" },
   { key: "employmentType", label: "雇用形態", desc: "契約の種別区分" },
+  { key: "activityStatus", label: "アクティビティ", desc: "ヘッダーのアイコンから選択できる在席状況（対応可能・取り込み中 など）" },
   { key: "blank", label: "ブランク", desc: "自由に使えるカテゴリー" },
 ];
 

@@ -82,6 +82,14 @@ export const defaultMasters: Masters = {
     { id: "r5", label: "D", order: 5 },
     { id: "r6", label: "E", order: 6 },
   ],
+  activityStatus: [
+    { id: "as1", label: "対応可能", order: 1 },
+    { id: "as2", label: "取り込み中", order: 2 },
+    { id: "as3", label: "応答不可", order: 3 },
+    { id: "as4", label: "一時退席", order: 4 },
+    { id: "as5", label: "離席中", order: 5 },
+    { id: "as6", label: "オフライン表示", order: 6 },
+  ],
   blank: [],
 };
 
@@ -135,7 +143,12 @@ async function downloadMastersFile(): Promise<MastersFile | null> {
 
 export async function getMasters(): Promise<Masters> {
   if (!isSupabaseEnabled()) {
-    return g.__keyatreeMastersStore ?? defaultMasters;
+    const current = g.__keyatreeMastersStore;
+    if (!current) return defaultMasters;
+    // Supabase 版と同じく、後から追加したマスターキーは既定値で補完する
+    const { masters } = migrateMastersFile({ seedVersion: CURRENT_SEED_VERSION, masters: current });
+    g.__keyatreeMastersStore = masters;
+    return masters;
   }
   let file = await downloadMastersFile();
   if (!file) {
