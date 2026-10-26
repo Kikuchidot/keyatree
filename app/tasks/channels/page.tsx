@@ -1825,9 +1825,9 @@ function TalkView({
           <button
             onClick={() => setShowFileSearch(true)}
             className="ml-auto flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-emerald-300 border border-gray-300 hover:border-emerald-500 rounded-lg transition"
-            title="このトークルームのファイルを検索"
+            title="このトークルームのメッセージ・ファイルを検索"
           >
-            📎 ファイル検索
+            🔍 検索
           </button>
         </div>
       </div>
@@ -2342,39 +2342,62 @@ function TalkView({
           talkName={talk.name}
           messages={messages}
           onClose={() => setShowFileSearch(false)}
+          onJumpTo={(id) => {
+            setTab("chat");
+            window.setTimeout(() => {
+              const el = document.querySelector(`[data-message-id="${id}"]`);
+              if (el) {
+                el.scrollIntoView({ block: "center" });
+                el.classList.add("kt-msg-highlight");
+                window.setTimeout(() => el.classList.remove("kt-msg-highlight"), 4000);
+              }
+            }, 50);
+          }}
         />
       )}
     </div>
   );
 }
 
-/* ------------ ファイル検索（トークルーム内の添付を検索） ------------ */
+/* ------------ トーク内検索（このトーク/DM内のテキスト＋ファイルを検索） ------------ */
 function FileSearchModal({
   talkName,
   messages,
   onClose,
+  onJumpTo,
 }: {
   talkName: string;
   messages: TalkMessage[];
   onClose: () => void;
+  onJumpTo?: (messageId: string) => void;
 }) {
   const [search, setSearch] = useState("");
+  const [tab, setTab] = useState<"all" | "text" | "file">("all");
   const [kind, setKind] = useState<"all" | "image" | "file">("all");
 
-  // メッセージ横断で添付を収集（新しい順）
-  const allFiles = [...messages]
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .flatMap((m) =>
-      (m.attachments ?? []).map((a, idx) => ({
-        att: a as TalkAttachmentT,
-        authorName: m.authorName,
-        createdAt: m.createdAt,
-        key: `${m.id}-${idx}`,
-      }))
-    );
-
+  const sorted = [...messages].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const q = search.trim().toLowerCase();
-  const filtered = allFiles.filter(({ att, authorName }) => {
+
+  // テキスト検索結果（本文・件名・投稿者名）
+  const textHits = q
+    ? sorted.filter((m) =>
+        (m.text || "").toLowerCase().includes(q) ||
+        (m.subject || "").toLowerCase().includes(q) ||
+        (m.authorName || "").toLowerCase().includes(q)
+      )
+    : [];
+
+  // ファイル検索結果（新しい順）
+  const allFiles = sorted.flatMap((m) =>
+    (m.attachments ?? []).map((a, idx) => ({
+      att: a as TalkAttachmentT,
+      authorName: m.authorName,
+      createdAt: m.createdAt,
+      messageId: m.id,
+      key: `${m.id}-${idx}`,
+    }))
+  );
+  const fileHits = allFiles.filter(({ att, authorName }) => {
     const isImg = isImageAttachment(att);
     if (kind === "image" && !isImg) return false;
     if (kind === "file" && isImg) return false;
@@ -2386,11 +2409,28 @@ function FileSearchModal({
     );
   });
 
+  const showText = tab !== "file" && q.length > 0;
+  const showFiles = tab !== "text";
+  const hasAny = (showText && textHits.length > 0) || (showFiles && fileHits.length > 0);
+  const emptyText = q
+    ? "該当するメッセージ・ファイルがありません"
+    : tab === "text"
+      ? "キーワードを入力すると、このトーク内のメッセージ本文・件名を検索します"
+      : allFiles.length === 0
+        ? "このトークには添付ファイルがありません。キーワードを入力するとメッセージ本文を検索できます"
+        : "キーワードを入力すると、メッセージ本文もあわせて検索します";
+
+  const jump = (id: string) => {
+    if (!onJumpTo) return;
+    onClose();
+    onJumpTo(id);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div className="w-full max-w-2xl max-h-[80vh] rounded-2xl bg-white border border-gray-300 shadow-2xl flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200">
-          <span className="text-sm font-bold text-gray-800">📎 ファイル検索</span>
+          <span className="text-sm font-bold text-gray-800">🔍 トーク内検索</span>
           <span className="text-[12px] text-gray-500 truncate">{talkName}</span>
           <button onClick={onClose} className="ml-auto text-gray-500 hover:text-gray-600">✕</button>
         </div>
@@ -2399,59 +2439,122 @@ function FileSearchModal({
             autoFocus
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="ファイル名・種類・投稿者で検索..."
+            placeholder="メッセージ本文・件名・ファイル名・投稿者で検索..."
             className="w-full bg-gray-100 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {([
               ["all", "すべて"],
+              ["text", "テキスト"],
               ["file", "ファイル"],
-              ["image", "画像"],
             ] as const).map(([k, label]) => (
               <button
                 key={k}
-                onClick={() => setKind(k)}
+                onClick={() => setTab(k)}
                 className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
-                  kind === k ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  tab === k ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                 }`}
               >
                 {label}
               </button>
             ))}
-            <span className="ml-auto text-[12px] text-gray-500">{filtered.length}件</span>
+            {tab === "file" && (
+              <span className="flex items-center gap-1 ml-1 border-l border-gray-300 pl-2">
+                {([
+                  ["all", "すべて"],
+                  ["image", "画像"],
+                  ["file", "ファイルのみ"],
+                ] as const).map(([k, label]) => (
+                  <button
+                    key={k}
+                    onClick={() => setKind(k)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition ${
+                      kind === k ? "bg-sky-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </span>
+            )}
+            <span className="ml-auto text-[12px] text-gray-500">
+              {showText && showFiles ? `${textHits.length + fileHits.length}件` : showText ? `${textHits.length}件` : `${fileHits.length}件`}
+            </span>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-3">
-          {filtered.length === 0 ? (
-            <p className="text-sm text-gray-500 py-10 text-center">
-              {allFiles.length === 0 ? "このトークルームには添付ファイルがありません" : "該当するファイルがありません"}
-            </p>
+          {!hasAny ? (
+            <p className="text-sm text-gray-500 py-10 text-center">{emptyText}</p>
           ) : (
-            <div className="space-y-1.5">
-              {filtered.map(({ att, authorName, createdAt, key }) => (
-                <a
-                  key={key}
-                  href={att.dataUrl}
-                  download={isImageAttachment(att) ? undefined : att.name || "file"}
-                  target={isImageAttachment(att) ? "_blank" : undefined}
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 rounded-lg border border-gray-200 hover:border-emerald-500 bg-gray-50 px-3 py-2 transition"
-                >
-                  {isImageAttachment(att) ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img src={att.dataUrl} alt={att.name || "画像"} className="h-11 w-11 object-cover rounded-md border border-gray-300 flex-shrink-0" />
-                  ) : (
-                    <span className="h-11 w-11 flex items-center justify-center text-2xl flex-shrink-0">{fileIcon(att)}</span>
-                  )}
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] text-gray-800">{att.name || "ファイル"}</span>
-                    <span className="block text-[11px] text-gray-500 truncate">
-                      {authorName} ・ {fmt(createdAt)}{formatBytes(att.size) ? ` ・ ${formatBytes(att.size)}` : ""}
-                    </span>
-                  </span>
-                  <span className="text-[11px] text-emerald-400 flex-shrink-0">{isImageAttachment(att) ? "開く" : "保存"}</span>
-                </a>
-              ))}
+            <div className="space-y-4">
+              {showText && textHits.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-bold text-gray-500 mb-1.5">テキスト（{textHits.length}件）</p>
+                  <div className="space-y-1.5">
+                    {textHits.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => jump(m.id)}
+                        className="w-full text-left rounded-lg border border-gray-200 hover:border-emerald-500 bg-gray-50 px-3 py-2 transition"
+                      >
+                        <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                          <span className="font-bold text-gray-700">{m.authorName}</span>
+                          <span>{fmt(m.createdAt)}</span>
+                          {m.parentId && <span className="text-emerald-500">↩ 返信</span>}
+                          <span className="ml-auto text-emerald-500 flex-shrink-0">このメッセージへ移動</span>
+                        </div>
+                        {m.subject && <p className="text-[13px] font-bold text-gray-800 mt-0.5 truncate">{m.subject}</p>}
+                        <p className="mt-0.5 text-[13px] text-gray-600 whitespace-pre-wrap break-words line-clamp-2">
+                          {m.text || (m.attachments?.length ? "[添付ファイル]" : "")}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {showFiles && fileHits.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-bold text-gray-500 mb-1.5">ファイル（{fileHits.length}件）</p>
+                  <div className="space-y-1.5">
+                    {fileHits.map(({ att, authorName, createdAt, messageId, key }) => (
+                      <div
+                        key={key}
+                        className="flex items-center gap-3 rounded-lg border border-gray-200 hover:border-emerald-500 bg-gray-50 px-3 py-2 transition"
+                      >
+                        <a
+                          href={att.dataUrl}
+                          download={isImageAttachment(att) ? undefined : att.name || "file"}
+                          target={isImageAttachment(att) ? "_blank" : undefined}
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-3 min-w-0 flex-1"
+                        >
+                          {isImageAttachment(att) ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img src={att.dataUrl} alt={att.name || "画像"} className="h-11 w-11 object-cover rounded-md border border-gray-300 flex-shrink-0" />
+                          ) : (
+                            <span className="h-11 w-11 flex items-center justify-center text-2xl flex-shrink-0">{fileIcon(att)}</span>
+                          )}
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[13px] text-gray-800">{att.name || "ファイル"}</span>
+                            <span className="block text-[11px] text-gray-500 truncate">
+                              {authorName} ・ {fmt(createdAt)}{formatBytes(att.size) ? ` ・ ${formatBytes(att.size)}` : ""}
+                            </span>
+                          </span>
+                          <span className="text-[11px] text-emerald-400 flex-shrink-0">{isImageAttachment(att) ? "開く" : "保存"}</span>
+                        </a>
+                        {onJumpTo && (
+                          <button
+                            onClick={() => jump(messageId)}
+                            className="flex-shrink-0 text-[11px] font-semibold text-sky-600 hover:text-sky-500 border border-sky-200 hover:border-sky-400 rounded-md px-2 py-1 transition"
+                          >
+                            位置を表示
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -3488,9 +3591,9 @@ function DmView({
         <button
           onClick={() => setShowDmFileSearch(true)}
           className="ml-auto flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-indigo-500 border border-gray-300 hover:border-indigo-500 rounded-lg transition"
-          title="このダイレクトチャットのファイルを検索"
+          title="このダイレクトチャットのメッセージ・ファイルを検索"
         >
-          📎 ファイル検索
+          🔍 検索
         </button>
       </div>
 
@@ -3791,6 +3894,16 @@ function DmView({
           talkName={peer.name}
           messages={messages}
           onClose={() => setShowDmFileSearch(false)}
+          onJumpTo={(id) => {
+            window.setTimeout(() => {
+              const el = document.querySelector(`[data-message-id="${id}"]`);
+              if (el) {
+                el.scrollIntoView({ block: "center" });
+                el.classList.add("kt-msg-highlight");
+                window.setTimeout(() => el.classList.remove("kt-msg-highlight"), 4000);
+              }
+            }, 50);
+          }}
         />
       )}
     </div>

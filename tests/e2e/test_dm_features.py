@@ -127,7 +127,7 @@ def test_02_ui_reply_and_quote_and_toolbar(env, browser: Browser):
         expect(page.locator("text=DM返信UI試験の親").first).to_be_visible(timeout=30000)
 
         # --- ① 装飾ツールバーとファイル検索ボタンが存在 ---
-        expect(page.locator("button:has-text('ファイル検索')").first).to_be_visible()
+        expect(page.locator("button:has-text('検索')").first).to_be_visible()
         expect(page.locator("button[title='太字（⌘B）']").first).to_be_visible()
 
         # --- ② スレッドで返信 ---

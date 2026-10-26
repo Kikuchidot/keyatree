@@ -154,3 +154,49 @@ def test_02_ui_search_and_jump(env, browser: Browser):
         expect(result).to_be_visible(timeout=30000)
     finally:
         ctx.close()
+
+
+def test_03_in_talk_text_and_file_search(env, browser: Browser):
+    """UI: トーク内検索ボタン → このトーク内だけのテキスト＋ファイル検索とジャンプ"""
+    ctx = browser.new_context(viewport={"width": 1600, "height": 900})
+    ctx.add_cookies([{"name": "kt_session", "value": cookie_value(env["acc_b"]), "url": env["base_url"]}])
+    page = ctx.new_page()
+    try:
+        page.goto(f"{env['base_url']}/tasks/channels", wait_until="domcontentloaded")
+        # 対象チャンネル→トークを開く
+        page.locator(f"aside button:has-text('{CH_NAME}')").first.click()
+        page.locator(f"button:has-text('{TALK_NAME}')").first.click()
+        expect(page.locator("div[data-message-id]", has_text=UNIQUE_TEXT).first).to_be_visible(timeout=30000)
+
+        # --- ① トーク内検索モーダルを開く ---
+        page.locator("button[title='このトークルームのメッセージ・ファイルを検索']").click()
+        modal = page.locator("div.fixed", has_text="トーク内検索").first
+        expect(modal.locator("text=トーク内検索")).to_be_visible(timeout=10000)
+
+        # --- ② テキスト検索: このトークのメッセージがヒット ---
+        box = modal.locator("input[placeholder*='メッセージ本文・件名']")
+        box.fill(UNIQUE_TEXT)
+        hit = modal.locator("button", has_text=UNIQUE_TEXT).first
+        expect(hit).to_be_visible(timeout=10000)
+        expect(modal.locator("text=テキスト（1件）")).to_be_visible()
+
+        # --- ③ 結果クリックでモーダルが閉じ、該当メッセージへジャンプ ---
+        hit.click()
+        expect(page.locator("text=トーク内検索")).not_to_be_visible(timeout=10000)
+        target = page.locator("div[data-message-id]", has_text=UNIQUE_TEXT).first
+        expect(target).to_be_visible(timeout=10000)
+
+        # --- ④ ファイルタブ: 添付ファイルがヒット ---
+        page.locator("button[title='このトークルームのメッセージ・ファイルを検索']").click()
+        modal = page.locator("div.fixed", has_text="トーク内検索").first
+        modal.locator("button:has-text('ファイル')").first.click()
+        box = modal.locator("input[placeholder*='メッセージ本文・件名']")
+        box.fill("横断検索サンプル")
+        expect(modal.locator("text=横断検索サンプル.txt").first).to_be_visible(timeout=10000)
+        # 位置を表示ボタンでメッセージへジャンプ
+        modal.locator("button:has-text('位置を表示')").first.click()
+        expect(page.locator("text=トーク内検索")).not_to_be_visible(timeout=10000)
+        expect(page.locator("div[data-message-id]", has_text="集計ファイルを共有します").first).to_be_visible(timeout=10000)
+        page.screenshot(path=".verdent/testing/screenshots/in_talk_search.png", full_page=False)
+    finally:
+        ctx.close()
