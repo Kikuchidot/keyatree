@@ -12,6 +12,20 @@ export type Masters = Record<string, MasterItem[]>;
 const BUCKET = "staff";
 const MASTERS_PATH = "masters/all.json";
 
+/**
+ * 保存ファイルの形式。
+ * seedVersion は「既定値に後から追加した項目を既存データへ補完した版数」で、
+ * 補完は一度だけ行い、以後はユーザーによる削除・リネームを尊重する。
+ */
+type MastersFile = { seedVersion: number; masters: Masters };
+
+/** 既定値に後から追加した項目（既存データへ一度だけ補完する）。key -> id -> 追加時の版数 */
+const LATER_DEFAULT_ITEMS: Record<string, Record<string, number>> = {
+  employmentType: { e5: 2 }, // 退職
+};
+
+const CURRENT_SEED_VERSION = 2;
+
 // ---- 初期マスターデータ（未登録時に seed） ----
 export const defaultMasters: Masters = {
   department: [
@@ -88,53 +102,119 @@ async function ensureBucket(supabase: ReturnType<typeof getSupabaseAdmin>) {
   bucketReady = true;
 }
 
+/**
+ * 保存データを読み込む。旧形式（Masters が直接保存された JSON）は
+ * 新形式（{ seedVersion, masters }）へ一度だけマイグレーションする。
+ * ファイルが存在しない場合は null を返す。
+ */
+async function downloadMastersFile(): Promise<MastersFile | null> {
+  const supabase = getSupabaseAdmin();
+  await ensureBucket(supabase);
+  const { data, error } = await supabase.storage.from(BUCKET).download(MASTERS_PATH);
+  if (error || !data) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await data.text());
+  } catch {
+    return null;
+  }
+  // 新形式
+  if (
+    parsed &&
+    typeof parsed === "object" &&
+    typeof (parsed as MastersFile).seedVersion === "number" &&
+    (parsed as MastersFile).masters &&
+    typeof (parsed as MastersFile).masters === "object"
+  ) {
+    const file = parsed as MastersFile;
+    return { seedVersion: file.seedVersion, masters: file.masters };
+  }
+  // 旧形式（Masters が直接保存されている）
+  return { seedVersion: 1, masters: parsed as Masters };
+}
+
 export async function getMasters(): Promise<Masters> {
   if (!isSupabaseEnabled()) {
     return g.__keyatreeMastersStore ?? defaultMasters;
   }
-  const supabase = getSupabaseAdmin();
-  await ensureBucket(supabase);
-  const { data, error } = await supabase.storage.from(BUCKET).download(MASTERS_PATH);
-  if (error || !data) {
+  let file = await downloadMastersFile();
+  if (!file) {
     // 未登録なら初期値を保存して返す
-    await saveMasters(defaultMasters);
-    return defaultMasters;
+    file = { seedVersion: CURRENT_SEED_VERSION, masters: { ...defaultMasters } };
   }
-  try {
-    const saved = JSON.parse(await data.text()) as Masters;
-    // 後から追加したマスターキー（evaluationRank など）は既定値で補完する
-    const merged: Masters = { ...defaultMasters, ...saved };
-    for (const key of Object.keys(defaultMasters)) {
-      if (!Array.isArray(merged[key])) {
-        merged[key] = defaultMasters[key];
-        continue;
-      }
-      // 既存キーでも、既定値に後から追加した項目（例: 雇用形態の「退職」）を補完する
-      const labels = new Set(merged[key].map((item) => item.label));
-      for (const def of defaultMasters[key]) {
-        if (!labels.has(def.label)) {
-          merged[key] = [...merged[key], { ...def, id: `${def.id}_auto` }];
-        }
-      }
-    }
-    return merged;
-  } catch {
-    return defaultMasters;
+  const { masters: merged, changed } = migrateMastersFile(file);
+  if (file.seedVersion < CURRENT_SEED_VERSION || changed) {
+    await saveMastersFile({ seedVersion: CURRENT_SEED_VERSION, masters: merged });
   }
+  return merged;
 }
 
-export async function saveMasters(masters: Masters): Promise<void> {
+/**
+ * 保存データに対するマイグレーション（純粋関数）。
+ *
+ * - seedVersion が古い場合のみ、旧マージ処理が自動復活させていたゴースト項目
+ *   （id が "_auto" で終わるもの）を除去する。ユーザーが追加した項目の id は
+ *   `${key}_${timestamp}` 形式なので誤って消えることはない。
+ * - 後から追加したマスターキーは既定値で補完する（丸ごと存在しない場合のみ）。
+ * - 既定値に後から追加した項目（例: 雇用形態の「退職」）は一度だけ補完する。
+ *   ユーザーが削除・リネームした既存項目を復活させることはしない。
+ */
+export function migrateMastersFile(file: MastersFile): { masters: Masters; changed: boolean } {
+  let masters = file.masters;
+  let changed = false;
+
+  if (file.seedVersion < CURRENT_SEED_VERSION) {
+    for (const key of Object.keys(masters)) {
+      const items = masters[key] ?? [];
+      const cleaned = items.filter((item) => !item.id.endsWith("_auto"));
+      if (cleaned.length !== items.length) {
+        masters = { ...masters, [key]: cleaned };
+        changed = true;
+      }
+    }
+  }
+
+  const merged: Masters = { ...masters };
+  for (const key of Object.keys(defaultMasters)) {
+    if (!Array.isArray(merged[key])) {
+      merged[key] = defaultMasters[key];
+      changed = true;
+    }
+  }
+
+  for (const [key, later] of Object.entries(LATER_DEFAULT_ITEMS)) {
+    for (const [id, since] of Object.entries(later)) {
+      if (since <= file.seedVersion) continue;
+      const def = defaultMasters[key]?.find((x) => x.id === id);
+      if (!def) continue;
+      const labels = new Set((merged[key] ?? []).map((item) => item.label));
+      if (!labels.has(def.label)) {
+        merged[key] = [...(merged[key] ?? []), { ...def }];
+        changed = true;
+      }
+    }
+  }
+
+  return { masters: merged, changed };
+}
+
+/** メモリfallback・Supabase 共通の保存処理（新形式で書き込む） */
+async function saveMastersFile(file: MastersFile): Promise<void> {
   if (!isSupabaseEnabled()) {
-    g.__keyatreeMastersStore = masters;
+    g.__keyatreeMastersStore = file.masters;
     return;
   }
   const supabase = getSupabaseAdmin();
   await ensureBucket(supabase);
-  const blob = new Blob([JSON.stringify(masters)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify(file)], { type: "application/json" });
   const { error } = await supabase.storage.from(BUCKET).upload(MASTERS_PATH, blob, {
     contentType: "application/json",
     cacheControl: "no-cache",
     upsert: true,
   });
   if (error) throw new Error(error.message);
+}
+
+export async function saveMasters(masters: Masters): Promise<void> {
+  await saveMastersFile({ seedVersion: CURRENT_SEED_VERSION, masters });
 }
