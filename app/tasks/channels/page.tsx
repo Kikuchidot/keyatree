@@ -79,6 +79,16 @@ function fmt(iso: string) {
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+/** 未読数バッジ（0件は非表示） */
+function UnreadBadge({ count }: { count: number }) {
+  if (!count) return null;
+  return (
+    <span className="flex-shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
 type TalkAttachmentT = { name?: string; dataUrl: string; type?: string; size?: number };
 
 const isImageAttachment = (a: TalkAttachmentT) =>
@@ -424,6 +434,9 @@ export default function ChannelsWorkspacePage() {
   const [showNewDm, setShowNewDm] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"channels" | "dm">("channels");
 
+  // 未読管理（チャンネル・トーク・DMの未読数）
+  const [unread, setUnread] = useState<{ byTalk: Record<string, number>; byChannel: Record<string, number>; total: number }>({ byTalk: {}, byChannel: {}, total: 0 });
+
   // リネームモーダル
   const [renameTarget, setRenameTarget] = useState<{
     type: "channel" | "talk";
@@ -558,6 +571,76 @@ export default function ChannelsWorkspacePage() {
       .finally(() => setDmLoading(false));
   }, []);
 
+  // ---- 未読管理 ----
+  const selectionRef = useRef<Selection>(null);
+  selectionRef.current = selection;
+
+  const loadUnread = useCallback(async () => {
+    try {
+      const res = await fetch("/api/task-channels/unread");
+      if (!res.ok) return;
+      const d = await res.json();
+      const next = {
+        byTalk: (d?.byTalk ?? {}) as Record<string, number>,
+        byChannel: (d?.byChannel ?? {}) as Record<string, number>,
+        total: (d?.total ?? 0) as number,
+      };
+      // 開いているトーク/DMは自動で既読化する（閲覧中に届いた新着を未読のままにしない）
+      const cur = selectionRef.current;
+      const openTalkId = cur?.type === "talk" ? cur.talkId : cur?.type === "dm" ? cur.talkId : null;
+      if (openTalkId && next.byTalk[openTalkId] > 0) {
+        fetch("/api/task-channels/unread", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ talkId: openTalkId }),
+        }).catch(() => {});
+        delete next.byTalk[openTalkId];
+        next.total = Object.values(next.byTalk).reduce((a, b) => a + b, 0);
+        const openChannelId = cur?.type === "talk" ? cur.channelId : cur?.type === "dm" ? cur.dmChannelId : "";
+        if (openChannelId && next.byChannel[openChannelId]) {
+          const rest = (next.byChannel[openChannelId] ?? 0) - (d?.byTalk?.[openTalkId] ?? 0);
+          if (rest > 0) next.byChannel[openChannelId] = rest;
+          else delete next.byChannel[openChannelId];
+        }
+      }
+      setUnread(next);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const markTalkReadLocal = useCallback((talkId: string, channelId: string) => {
+    fetch("/api/task-channels/unread", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ talkId }),
+    }).catch(() => {});
+    setUnread((prev) => {
+      if (!prev.byTalk[talkId]) return prev;
+      const byTalk = { ...prev.byTalk };
+      const removed = byTalk[talkId] ?? 0;
+      delete byTalk[talkId];
+      const byChannel = { ...prev.byChannel };
+      if (byChannel[channelId]) {
+        const rest = byChannel[channelId] - removed;
+        if (rest > 0) byChannel[channelId] = rest;
+        else delete byChannel[channelId];
+      }
+      return { byTalk, byChannel, total: Math.max(0, prev.total - removed) };
+    });
+  }, []);
+
+  useEffect(() => {
+    loadUnread();
+    const timer = setInterval(loadUnread, 30000);
+    const onFocus = () => loadUnread();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [loadUnread]);
+
   useEffect(() => {
     setSession(getClientSession());
     setChannelOrder(getOrder("channels"));
@@ -598,10 +681,12 @@ export default function ChannelsWorkspacePage() {
   };
   const selectTalk = (channelId: string, talkId: string) => {
     setSelection({ type: "talk", channelId, talkId });
+    markTalkReadLocal(talkId, channelId);
   };
   const selectDm = (dm: DmChannel) => {
     if (!dm.talkId) return;
     setSelection({ type: "dm", dmChannelId: dm.id, talkId: dm.talkId, peer: dm.peer });
+    markTalkReadLocal(dm.talkId, dm.id);
     setSidebarTab("dm");
   };
 
@@ -698,19 +783,21 @@ export default function ChannelsWorkspacePage() {
           <div className="px-3 pb-2 flex items-center gap-1.5">
             <button
               onClick={() => setSidebarTab("channels")}
-              className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition ${
+              className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition flex items-center gap-1 ${
                 sidebarTab === "channels" ? "bg-emerald-600 text-white" : "border border-gray-300 text-gray-600 hover:bg-gray-100"
               }`}
             >
               チャネル
+              <UnreadBadge count={Object.entries(unread.byChannel).filter(([id]) => !dmChannels.some((dm) => dm.id === id)).reduce((a, [, n]) => a + n, 0)} />
             </button>
             <button
               onClick={() => { setSidebarTab("dm"); if (dmChannels.length === 0 && !dmLoading) loadDms(); }}
-              className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition ${
+              className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition flex items-center gap-1 ${
                 sidebarTab === "dm" ? "bg-indigo-600 text-white" : "border border-gray-300 text-gray-600 hover:bg-gray-100"
               }`}
             >
               ダイレクト
+              <UnreadBadge count={dmChannels.reduce((a, dm) => a + (dm.talkId ? unread.byTalk[dm.talkId] ?? 0 : 0), 0)} />
             </button>
             {sidebarTab === "channels" && hiddenCount > 0 && (
               <button
@@ -777,6 +864,7 @@ export default function ChannelsWorkspacePage() {
                           <p className="text-[11px] text-gray-500 truncate">{dm.lastMessage}</p>
                         )}
                       </div>
+                      <UnreadBadge count={dm.talkId ? unread.byTalk[dm.talkId] ?? 0 : 0} />
                       {dm.lastMessageAt && (
                         <span className="text-[10px] text-gray-400 flex-shrink-0">{fmt(dm.lastMessageAt).split(" ")[1]}</span>
                       )}
@@ -843,6 +931,7 @@ export default function ChannelsWorkspacePage() {
                         >
                           <span className={`text-sm truncate block ${active ? "text-gray-800 font-semibold" : "text-gray-700"}`}>{c.name}</span>
                         </button>
+                      <UnreadBadge count={unread.byChannel[c.id] ?? 0} />
                       <span className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 transition">
                         {isAdmin && (
                           <button
@@ -928,6 +1017,7 @@ export default function ChannelsWorkspacePage() {
                                     >
                                       {t.name}
                                     </span>
+                                  <UnreadBadge count={unread.byTalk[t.id] ?? 0} />
                                   {canRenameTalk && (
                                     <button
                                       onClick={(e) => {

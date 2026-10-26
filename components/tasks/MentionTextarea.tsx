@@ -181,6 +181,90 @@ export default function MentionTextarea({
     onChange(md);
   };
 
+  // ---- 入力中メンションのライブ装飾 ----
+  // ノード全体のテキストオフセットを計算（キャレット復元用）
+  const textOffsetOf = (root: Node, node: Node, offset: number): number => {
+    let count = 0;
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let cur = walk.nextNode();
+    while (cur) {
+      if (cur === node) return count + offset;
+      count += (cur.textContent ?? "").length;
+      cur = walk.nextNode();
+    }
+    return -1;
+  };
+
+  const setCaretAtOffset = (root: Node, offset: number) => {
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let cur = walk.nextNode();
+    let count = 0;
+    while (cur) {
+      const len = (cur.textContent ?? "").length;
+      if (count + len >= offset) {
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.setStart(cur, offset - count);
+        range.collapse(true);
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        return;
+      }
+      count += len;
+      cur = walk.nextNode();
+    }
+  };
+
+  // すでにメンション装飾スパン内か
+  const inMentionSpan = (node: Node): boolean => {
+    let p: Node | null = node.parentNode;
+    while (p && p !== ref.current) {
+      if (p instanceof HTMLElement && p.classList.contains("kt-mention-live")) return true;
+      p = p.parentNode;
+    }
+    return false;
+  };
+
+  /**
+   * 手入力で「@名前 」(完全一致 + 区切りの空白) が完成した瞬間に着色する。
+   * 装飾は表示専用（className のみ）で、シリアライズ結果は変わらない。
+   */
+  const decorateLiveMention = () => {
+    const el = ref.current;
+    const sel = window.getSelection();
+    if (!el || !sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    const node = range.startContainer;
+    if (node.nodeType !== Node.TEXT_NODE) return;
+    const tn = node as Text;
+    if (!el.contains(tn) || inMentionSpan(tn)) return;
+    const caret = range.startOffset;
+    const text = tn.textContent ?? "";
+    if (caret > text.length) return;
+    const before = text.slice(0, caret);
+    const m = before.match(/(^|\s)@([^\s@]+)[ \u3000]$/);
+    if (!m) return;
+    const name = m[2];
+    const isAll = name === ALL_MENTION_NAME;
+    if (!isAll && !members.some((x) => x.name === name)) return;
+    // 「@」の開始位置（グループ1の空白分を除く）
+    const start = before.length - name.length - 1 - m[1].length;
+    if (start < 0) return;
+    const caretOff = textOffsetOf(el, tn, caret);
+    try {
+      const wrapRange = document.createRange();
+      wrapRange.setStart(tn, start);
+      wrapRange.setEnd(tn, start + 1 + name.length);
+      const span = document.createElement("span");
+      span.className = isAll ? "kt-mention-live kt-mention-all" : "kt-mention-live";
+      wrapRange.surroundContents(span);
+      if (caretOff >= 0) setCaretAtOffset(el, caretOff);
+      serialize();
+    } catch {
+      /* 装飾できない場合はそのまま */
+    }
+  };
+
   const insert = (m: Member) => {
     const ctx = getCaretContext();
     const insertText = `@${m.name} `;
@@ -189,13 +273,37 @@ export default function MentionTextarea({
       const start = atIndex >= 0 ? atIndex : ctx.offset;
       const text = tn.textContent ?? "";
       tn.textContent = text.slice(0, start) + insertText + text.slice(ctx.offset);
-      const pos = start + insertText.length;
-      const sel = window.getSelection();
-      const range = document.createRange();
-      range.setStart(tn, pos);
-      range.collapse(true);
-      sel?.removeAllRanges();
-      sel?.addRange(range);
+      // メンション部分（@名前 のみ。末尾の空白は含めない）を着色スパンで包む
+      const mentionEnd = start + insertText.length - 1;
+      try {
+        const wrapRange = document.createRange();
+        wrapRange.setStart(tn, start);
+        wrapRange.setEnd(tn, mentionEnd);
+        const span = document.createElement("span");
+        span.className = m.id === ALL_MENTION_ID ? "kt-mention-live kt-mention-all" : "kt-mention-live";
+        wrapRange.surroundContents(span);
+        // キャレットは末尾（空白の後）へ
+        const rest = span.nextSibling;
+        const sel = window.getSelection();
+        const range = document.createRange();
+        if (rest && rest.nodeType === Node.TEXT_NODE) {
+          range.setStart(rest as Text, 1);
+        } else {
+          range.setStartAfter(span);
+        }
+        range.collapse(true);
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      } catch {
+        // 包めない場合は従来通りキャレットを末尾へ
+        const pos = start + insertText.length;
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.setStart(tn, pos);
+        range.collapse(true);
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      }
     } else {
       document.execCommand("insertText", false, insertText);
     }
@@ -455,6 +563,7 @@ export default function MentionTextarea({
         onInput={() => {
           serialize();
           detect();
+          decorateLiveMention();
         }}
         onKeyDown={onKeyDown}
         onKeyUp={detect}

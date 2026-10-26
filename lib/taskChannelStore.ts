@@ -13,6 +13,7 @@ const BUCKET = "task-channels";
 const CHANNEL_PREFIX = "channels";
 const TALK_PREFIX = "talks";
 const MESSAGE_PREFIX = "messages";
+const READ_PREFIX = "reads";
 
 export type ChannelMemberRole = "admin" | "member";
 
@@ -103,12 +104,13 @@ type GlobalStore = {
   channels: Map<string, Channel>;
   talks: Map<string, Talk>;
   messages: Map<string, TalkMessage[]>;
+  reads: Map<string, Record<string, string>>;
   seeded: boolean;
 };
 const g = globalThis as unknown as { __keyatreeTaskChannelStore?: GlobalStore };
 function memory(): GlobalStore {
   if (!g.__keyatreeTaskChannelStore) {
-    g.__keyatreeTaskChannelStore = { channels: new Map(), talks: new Map(), messages: new Map(), seeded: false };
+    g.__keyatreeTaskChannelStore = { channels: new Map(), talks: new Map(), messages: new Map(), reads: new Map(), seeded: false };
   }
   return g.__keyatreeTaskChannelStore;
 }
@@ -672,4 +674,126 @@ export async function getDmTalk(channelId: string): Promise<Talk | null> {
   await ensureBucket(supabase);
   const allTalks = await listJson<Talk>(supabase, TALK_PREFIX);
   return allTalks.find((t) => t.channelId === channelId && !t.archived) ?? null;
+}
+
+// ---- 未読管理（既読状態はメンバー毎に reads/{memberId}.json へ保存） ----
+
+/** トーク毎の最終既読時刻（talkId -> ISO日時） */
+type ReadState = Record<string, string>;
+
+function readPath(memberId: string) {
+  return `${READ_PREFIX}/${encodeURIComponent(memberId)}.json`;
+}
+
+export async function getReadState(memberId: string): Promise<ReadState> {
+  if (!memberId) return {};
+  if (!isSupabaseEnabled()) return memory().reads.get(memberId) ?? {};
+  const supabase = getSupabaseAdmin();
+  await ensureBucket(supabase);
+  return (await getJson<ReadState>(supabase, readPath(memberId))) ?? {};
+}
+
+/** トークを現在時刻まで既読にする */
+export async function markTalkRead(memberId: string, talkId: string): Promise<void> {
+  if (!memberId || !talkId) return;
+  const now = new Date().toISOString();
+  if (!isSupabaseEnabled()) {
+    const m = memory();
+    const cur = m.reads.get(memberId) ?? {};
+    cur[talkId] = now;
+    m.reads.set(memberId, cur);
+    return;
+  }
+  const supabase = getSupabaseAdmin();
+  await ensureBucket(supabase);
+  const cur = (await getJson<ReadState>(supabase, readPath(memberId))) ?? {};
+  cur[talkId] = now;
+  await putJson(supabase, readPath(memberId), cur);
+}
+
+/** アーカイブされていない全チャンネル（DM含む）を取得 */
+async function allActiveChannels(): Promise<(Channel & { type?: string; dmKey?: string })[]> {
+  if (!isSupabaseEnabled()) {
+    return Array.from(memory().channels.values()).filter((c) => !c.archived);
+  }
+  const supabase = getSupabaseAdmin();
+  await ensureBucket(supabase);
+  const all = await listJson<Channel & { type?: string; dmKey?: string }>(supabase, CHANNEL_PREFIX);
+  return all.filter((c) => !c.archived);
+}
+
+/** アーカイブされていない全トークを取得 */
+async function allActiveTalks(): Promise<Talk[]> {
+  if (!isSupabaseEnabled()) {
+    return Array.from(memory().talks.values()).filter((t) => !t.archived);
+  }
+  const supabase = getSupabaseAdmin();
+  await ensureBucket(supabase);
+  const all = await listJson<Talk>(supabase, TALK_PREFIX);
+  return all.filter((t) => !t.archived);
+}
+
+export type UnreadSummary = {
+  /** トーク毎の未読数 */
+  byTalk: Record<string, number>;
+  /** チャンネル（DM含む）毎の未読数 */
+  byChannel: Record<string, number>;
+  total: number;
+  /** 未読がある通常チャンネル（未読多い順） */
+  channelItems: { id: string; name: string; unread: number }[];
+  /** 未読があるDM（未読多い順） */
+  dmItems: { id: string; talkId?: string; peerName: string; unread: number }[];
+};
+
+/**
+ * メンバーが閲覧可能なトークの未読数を集計する。
+ * 閲覧可能 = DMなら参加者 / 通常チャンネルならチャンネル参加者 or トーク参加者
+ * （チャンネルメンバーが空の初期チャンネルは全員が閲覧可能とみなす）
+ */
+export async function computeUnread(memberId: string): Promise<UnreadSummary> {
+  const empty: UnreadSummary = { byTalk: {}, byChannel: {}, total: 0, channelItems: [], dmItems: [] };
+  if (!memberId) return empty;
+  const [channels, talks, reads] = await Promise.all([
+    allActiveChannels(),
+    allActiveTalks(),
+    getReadState(memberId),
+  ]);
+  const channelById = new Map(channels.map((c) => [c.id, c]));
+  const byTalk: Record<string, number> = {};
+  const byChannel: Record<string, number> = {};
+  const channelItems: UnreadSummary["channelItems"] = [];
+  const dmItems: UnreadSummary["dmItems"] = [];
+  let total = 0;
+
+  for (const talk of talks) {
+    const channel = channelById.get(talk.channelId);
+    if (!channel) continue;
+    const isDm = channel.type === "dm";
+    const memberOfChannel = channel.members.some((m) => m.id === memberId);
+    const memberOfTalk = talk.members.some((m) => m.id === memberId);
+    // アクセス権: DMはチャンネル参加者のみ。通常チャンネルは参加者 or メンバー未設定のチャンネル
+    if (isDm) {
+      if (!memberOfChannel) continue;
+    } else if (!memberOfChannel && !memberOfTalk && channel.members.length > 0) {
+      continue;
+    }
+    const lastRead = reads[talk.id] ?? "";
+    const messages = await listTalkMessages(talk.id);
+    const count = messages.filter((m) => m.authorId !== memberId && m.createdAt > lastRead).length;
+    if (count === 0) continue;
+    byTalk[talk.id] = count;
+    byChannel[channel.id] = (byChannel[channel.id] ?? 0) + count;
+    total += count;
+    if (isDm) {
+      const peer = channel.members.find((m) => m.id !== memberId) ?? channel.members[0];
+      dmItems.push({ id: channel.id, talkId: talk.id, peerName: peer?.name ?? "不明", unread: count });
+    } else {
+      channelItems.push({ id: channel.id, name: channel.name, unread: count });
+    }
+  }
+
+  const desc = (a: { unread: number }, b: { unread: number }) => b.unread - a.unread;
+  channelItems.sort(desc);
+  dmItems.sort(desc);
+  return { byTalk, byChannel, total, channelItems, dmItems };
 }

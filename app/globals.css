@@ -140,3 +140,17 @@
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 .animate-fade-in { animation: fade-in 0.25s ease-out forwards; }
+/* ---- トーク入力欄のメンション装飾（入力中から色付き表示） ----
+   MentionTextarea で挿入・入力された @メンション に付与される。
+   シリアライズ時には装飾として保存されない（表示専用）。 */
+.kt-mention-live {
+  color: #059669;
+  font-weight: 700;
+  background-color: rgba(16, 185, 129, 0.10);
+  border-radius: 4px;
+  padding: 0 2px;
+}
+.kt-mention-live.kt-mention-all {
+  color: #0369a1;
+  background-color: rgba(14, 165, 233, 0.12);
+}

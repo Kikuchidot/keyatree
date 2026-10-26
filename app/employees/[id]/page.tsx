@@ -8,6 +8,7 @@ import EmployeeCard from "@/components/EmployeeCard";
 import GreetingBanner from "@/components/GreetingBanner";
 import NewsTicker from "@/components/NewsTicker";
 import TaskAlertPanel from "@/components/TaskAlertPanel";
+import ChatUnreadPanel from "@/components/tasks/ChatUnreadPanel";
 import MonthlyGoalCard from "@/components/MonthlyGoalCard";
 import BravoButton from "@/components/BravoButton";
 import SeedGoalData from "@/components/goal-navigator/SeedGoalData";
@@ -127,6 +128,9 @@ export default function EmployeePage() {
 
       {/* タスクアラートパネル */}
       <TaskAlertPanel />
+
+      {/* チャット未読パネル（未読があるときのみ表示） */}
+      <ChatUnreadPanel />
 
       <main className="max-w-5xl mx-auto px-4 py-6">
         <div className="flex flex-col md:flex-row gap-6">

@@ -42,6 +42,12 @@ export default function TalkDetailPage({ params }: { params: Promise<{ channelId
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
     apiListTasks({ talkId }).then(setTasks).catch(() => setTasks([]));
+    // このトークを開いた時点で既読にする（未読バッジの解消）
+    fetch("/api/task-channels/unread", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ talkId }),
+    }).catch(() => {});
   }, [channelId, talkId]);
 
   const removeMember = async (id: string) => {
