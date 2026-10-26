@@ -676,6 +676,20 @@ export default function ChannelsWorkspacePage() {
   // ---- 通知からのダイレクトリンク（?channel=&talk=&msg= / ?dm=&talk=&msg=） ----
   // 通知を押して遷移してきた場合、対象のトーク/DMを自動で開き、トリガーメッセージまでスクロールする
   const [pendingHighlight, setPendingHighlight] = useState<string | null>(null);
+  // ---- チャット横断検索 ----
+  const [showChatSearch, setShowChatSearch] = useState(false);
+  const openSearchResult = (r: { channelId: string; isDm: boolean; talkId: string; messageId: string }) => {
+    setShowChatSearch(false);
+    if (r.isDm) {
+      const dm = dmChannels.find((d) => d.id === r.channelId || d.talkId === r.talkId);
+      if (dm) selectDm(dm);
+    } else {
+      setExpanded((prev) => new Set(prev).add(r.channelId));
+      loadChannel(r.channelId);
+      selectTalk(r.channelId, r.talkId);
+    }
+    setPendingHighlight(r.messageId);
+  };
   const deepLinkHandled = useRef(false);
   useEffect(() => {
     if (deepLinkHandled.current) return;
@@ -826,13 +840,20 @@ export default function ChannelsWorkspacePage() {
           </div>
 
           {/* 検索 */}
-          <div className="px-3 pb-2">
+          <div className="px-3 pb-2 flex items-center gap-1.5">
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="チャンネル・トークルームを検索"
-              className="w-full bg-gray-100 border border-gray-300 rounded-lg px-3 py-1.5 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="flex-1 min-w-0 bg-gray-100 border border-gray-300 rounded-lg px-3 py-1.5 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             />
+            <button
+              onClick={() => setShowChatSearch(true)}
+              title="メッセージ・ファイルを横断検索"
+              className="flex-shrink-0 w-8 h-8 rounded-lg border border-gray-300 bg-white hover:border-emerald-500 text-gray-600 text-sm flex items-center justify-center transition"
+            >
+              🔍
+            </button>
           </div>
 
           {/* タブ切替: チャネル / ダイレクト */}
@@ -1203,6 +1224,13 @@ export default function ChannelsWorkspacePage() {
             });
             selectDm(dm);
           }}
+        />
+      )}
+
+      {showChatSearch && (
+        <ChatSearchModal
+          onClose={() => setShowChatSearch(false)}
+          onOpenResult={openSearchResult}
         />
       )}
 
@@ -2416,6 +2444,123 @@ function FileSearchModal({
                   </span>
                   <span className="text-[11px] text-emerald-400 flex-shrink-0">{isImageAttachment(att) ? "開く" : "保存"}</span>
                 </a>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------ チャット横断検索（本文・ファイル名・ファイルの中身） ------------ */
+function ChatSearchModal({
+  onClose,
+  onOpenResult,
+}: {
+  onClose: () => void;
+  onOpenResult: (r: {
+    channelId: string;
+    isDm: boolean;
+    talkId: string;
+    messageId: string;
+  }) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<
+    {
+      channelId: string;
+      channelName: string;
+      isDm: boolean;
+      talkId: string;
+      talkName: string;
+      messageId: string;
+      authorName: string;
+      createdAt: string;
+      matchType: "text" | "file";
+      snippet: string;
+      fileName?: string;
+    }[]
+  >([]);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+
+  // 入力確定（Enter/ボタン）で検索
+  const runSearch = async () => {
+    const query = q.trim();
+    if (!query) return;
+    setLoading(true);
+    setSearched(true);
+    try {
+      const res = await fetch(`/api/task-channels/search?q=${encodeURIComponent(query)}`, { cache: "no-store" });
+      const d = await res.json();
+      setResults(d?.results ?? []);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-2xl max-h-[80vh] rounded-2xl bg-white border border-gray-300 shadow-2xl flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200">
+          <span className="text-sm font-bold text-gray-800">🔍 メッセージ・ファイル検索</span>
+          <button onClick={onClose} className="ml-auto text-gray-500 hover:text-gray-600">✕</button>
+        </div>
+        <div className="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") runSearch();
+            }}
+            placeholder="メッセージ本文・ファイル名・ファイルの中身（テキスト系）を検索..."
+            className="flex-1 bg-gray-100 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          />
+          <button
+            onClick={runSearch}
+            disabled={loading || !q.trim()}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold px-4 py-2 rounded-lg transition disabled:opacity-50"
+          >
+            {loading ? "検索中..." : "検索"}
+          </button>
+        </div>
+        <div className="px-4 pt-2 text-[11px] text-gray-400">
+          アクセスできるチャンネル・トーク・DMが対象です（上位50件）
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          {loading ? (
+            <p className="text-sm text-gray-500 py-10 text-center animate-pulse">検索中...</p>
+          ) : !searched ? (
+            <p className="text-sm text-gray-500 py-10 text-center">キーワードを入力して検索してください</p>
+          ) : results.length === 0 ? (
+            <p className="text-sm text-gray-500 py-10 text-center">該当するメッセージ・ファイルがありません</p>
+          ) : (
+            <div className="space-y-1.5">
+              {results.map((r) => (
+                <button
+                  key={`${r.messageId}-${r.matchType}`}
+                  onClick={() => onOpenResult(r)}
+                  className="w-full text-left rounded-lg border border-gray-200 hover:border-emerald-500 bg-gray-50 px-3 py-2 transition"
+                >
+                  <div className="flex items-center gap-1.5 text-[11px] text-gray-500 flex-wrap">
+                    <span className={`px-1.5 py-0.5 rounded font-bold ${r.isDm ? "bg-indigo-100 text-indigo-600" : "bg-emerald-100 text-emerald-600"}`}>
+                      {r.isDm ? "DM" : r.channelName}
+                    </span>
+                    <span className="truncate">{r.talkName}</span>
+                    {r.matchType === "file" && (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 font-bold">📄 ファイル{r.fileName ? `: ${r.fileName}` : ""}</span>
+                    )}
+                    <span className="ml-auto flex-shrink-0">{r.authorName} ・ {fmt(r.createdAt)}</span>
+                  </div>
+                  <p className="mt-1 text-[13px] text-gray-800 break-words line-clamp-2">{r.snippet}</p>
+                </button>
               ))}
             </div>
           )}
