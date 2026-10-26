@@ -831,7 +831,14 @@ export async function computeUnread(memberId: string): Promise<UnreadSummary> {
     if (isDm) return memberOfChannel;
     return memberOfChannel || memberOfTalk || channel.members.length === 0;
   });
-  const messagesByTalk = await Promise.all(visibleTalks.map((talk) => listTalkMessages(talk.id)));
+  // 同時リクエスト数を制限しつつ並列取得（全件同時だとSupabaseがスロットリングする）
+  const CONCURRENCY = 8;
+  const messagesByTalk: TalkMessage[][] = new Array(visibleTalks.length);
+  for (let start = 0; start < visibleTalks.length; start += CONCURRENCY) {
+    const chunk = visibleTalks.slice(start, start + CONCURRENCY);
+    const loaded = await Promise.all(chunk.map((talk) => listTalkMessages(talk.id)));
+    for (let i = 0; i < chunk.length; i++) messagesByTalk[start + i] = loaded[i];
+  }
 
   for (let ti = 0; ti < visibleTalks.length; ti++) {
     const talk = visibleTalks[ti];
