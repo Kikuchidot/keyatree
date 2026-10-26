@@ -105,7 +105,12 @@ export default function EvaluationManager({
 
   function handleGenerate() {
     if (!currentPeriodId) return;
-    if (!confirm("評価レコードを生成します。既に存在するスタッフはスキップされます。よろしいですか？")) return;
+    if (
+      !confirm(
+        "承認済みの定量・定性目標シートから評価レコードを生成・取込します。\n既存レコードは未入力の月のみ補完し、手動入力済みの値は上書きしません。よろしいですか？"
+      )
+    )
+      return;
     startTransition(async () => {
       const res = await generateEvaluationRecordsAction(currentPeriodId);
       if (!res.ok) {
@@ -113,7 +118,9 @@ export default function EvaluationManager({
         return;
       }
       refreshRecords(currentPeriodId);
-      setMessage(`評価レコードを ${res.created} 件生成しました（スキップ ${res.skipped} 件）`);
+      setMessage(
+        `評価レコードを ${res.created} 件生成、${res.updated} 件を最新化しました（定量・定性シートから自動取込）`
+      );
     });
   }
 
@@ -183,7 +190,7 @@ export default function EvaluationManager({
               disabled={!currentPeriodId || pending}
               className="bg-emerald-600 text-white text-sm font-bold px-4 py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
             >
-              評価レコード生成
+              評価レコード生成・取込
             </button>
           </div>
         </div>

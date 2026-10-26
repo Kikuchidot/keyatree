@@ -84,27 +84,50 @@ export async function getEvaluationRecordsAction(
 ): Promise<EvaluationRecord[]> {
   if (!(await isEvaluationAdmin())) return [];
   const records = await listEvaluationRecords(periodId);
-  // currentRank が未設定の旧レコードにスタッフマスターの現状ランクを補完する
-  const missing = records.some((r) => !r.currentRank);
-  if (missing) {
-    const staff = await listStaff();
-    const rankById = new Map(staff.map((s) => [s.id, s.evaluationRank || "B"]));
-    for (const r of records) {
-      if (!r.currentRank) r.currentRank = rankById.get(r.employeeId) || "B";
+  // スタッフマスター由来の情報（名前・グレード・チーム・現状ランク）を常に最新化する
+  const staff = await listStaff();
+  const staffById = new Map(staff.map((s) => [s.id, s]));
+  const dirty: EvaluationRecord[] = [];
+  for (const r of records) {
+    const emp = staffById.get(r.employeeId);
+    if (!emp) continue;
+    const teamCode = teamCodeForDepartment(emp.team || emp.department);
+    const next: EvaluationRecord = {
+      ...r,
+      employeeName: emp.name,
+      teamCode,
+      teamLabel: TEAM_LABELS[teamCode],
+      stageGrade: (emp.grade || "-").trim(),
+      currentRank: r.currentRank || emp.evaluationRank || "B",
+    };
+    if (
+      next.employeeName !== r.employeeName ||
+      next.teamCode !== r.teamCode ||
+      next.teamLabel !== r.teamLabel ||
+      next.stageGrade !== r.stageGrade ||
+      next.currentRank !== r.currentRank
+    ) {
+      Object.assign(r, next);
+      dirty.push(r);
     }
+  }
+  if (dirty.length > 0) {
+    await Promise.all(dirty.map((r) => saveEvaluationRecord(r)));
   }
   return records;
 }
 
 /**
- * 期間の評価レコードを全スタッフ分自動生成する。
- * 定量は期間内の各月の承認済み定量目標シートから、月ごとに全社/個人(チーム)の
- * 目標値・結果値を自動取込する（未提出月・解析不能は未入力 = 手動入力対象）。
+ * 期間の評価レコードを全スタッフ分自動生成・更新する。
+ * - 定量: 期間内の各月の承認済み定量目標シートから月ごとに全社/個人(チーム)の目標値・結果値を取込
+ * - 定性: 期間内の各月の承認済み定性目標シートから能力項目①〜⑤の評価（一次評価優先、なければ自己評価）を取込
+ * - 既存レコードは、未入力の月のみ補完し、手動入力済みの値は上書きしない。
+ *   スタッフマスター由来の情報（名前・グレード・チーム・現ランク）は最新化する。
  */
 export async function generateEvaluationRecordsAction(
   periodId: string
 ): Promise<
-  { ok: true; created: number; skipped: number } | { ok: false; message: string }
+  { ok: true; created: number; updated: number } | { ok: false; message: string }
 > {
   const auth = await assertEvaluationAdmin();
   if (!auth.ok) return auth;
@@ -114,101 +137,200 @@ export async function generateEvaluationRecordsAction(
 
   const staff = await listStaff();
   const existing = await listEvaluationRecords(periodId);
-  const existingByEmployee = new Set(existing.map((r) => r.employeeId));
+  const existingByEmployee = new Map(existing.map((r) => [r.employeeId, r]));
 
-  // 期間内の承認済み定量目標シートを「従業員×月」ごとの最新1件に整理
-  const goalRecords = await listNavigatorRecords({ kind: "quantitative", includeAll: true });
-  const inPeriod = goalRecords.filter((r) => {
-    if (r.status !== "approved") return false;
+  // 期間内の承認済み目標シートを「種別×従業員×月」ごとの最新1件に整理
+  const allGoalRecords = await listNavigatorRecords({ includeAll: true });
+  const latestByKindEmployeeMonth = new Map<string, typeof allGoalRecords[number]>();
+  for (const r of allGoalRecords) {
+    if (r.status !== "approved") continue;
     const ym = periodFromTitle(r.title);
-    return ym ? monthsInclude(periodId, ym) : false;
-  });
-  const latestByEmployeeMonth = new Map<string, typeof inPeriod[number]>();
-  for (const r of inPeriod) {
-    const key = `${r.employeeId || r.ownerId}::${periodFromTitle(r.title)}`;
-    const prev = latestByEmployeeMonth.get(key);
-    if (!prev || r.updatedAt > prev.updatedAt) latestByEmployeeMonth.set(key, r);
+    if (!ym || !monthsInclude(periodId, ym)) continue;
+    const key = `${r.kind}::${r.employeeId || r.ownerId}::${ym}`;
+    const prev = latestByKindEmployeeMonth.get(key);
+    if (!prev || r.updatedAt > prev.updatedAt) latestByKindEmployeeMonth.set(key, r);
+  }
+
+  /** 従業員×月の承認済みシート（quantitative / qualitative） */
+  function sheetFor(kind: string, employeeId: string, ym: string) {
+    return latestByKindEmployeeMonth.get(`${kind}::${employeeId}::${ym}`);
+  }
+
+  /** 定量の月別エントリをシートから取り出す */
+  function quantEntriesFromSheet(
+    answers: Record<string, string>,
+    weight: { otherType: string }
+  ) {
+    const companyTarget = parseNumber(answers.company_value);
+    const companyResult = parseNumber(answers.company_result);
+    const otherTarget =
+      weight.otherType === "team"
+        ? parseNumber(answers.team_value) || parseNumber(answers.team_deadline)
+        : parseNumber(answers.personal_value);
+    const otherResult =
+      weight.otherType === "team"
+        ? parseNumber(answers.team_result) || parseNumber(answers.monthly_result1)
+        : parseNumber(answers.personal_result) || parseNumber(answers.monthly_result1);
+    return { companyTarget, companyResult, otherTarget, otherResult };
+  }
+
+  /** 定性の能力項目①〜⑤の点数をシートから取り出す（一次評価優先、なければ自己評価） */
+  function qualScoresFromSheet(answers: Record<string, string>): number[] {
+    return [1, 2, 3, 4, 5].map((n) => {
+      const first = parseNumber(answers[`q_first_${n}`]);
+      if (first > 0) return 10;
+      const self = parseNumber(answers[`q_self_${n}`]);
+      if (self > 0) return 10;
+      return 0;
+    });
   }
 
   const now = new Date().toISOString();
   const newRecords: EvaluationRecord[] = [];
-  let skipped = 0;
+  const updatedRecords: EvaluationRecord[] = [];
+  let updatedCount = 0;
 
   for (const emp of staff) {
-    if (existingByEmployee.has(emp.id)) {
-      skipped++;
-      continue;
-    }
     // 退職者は対象外
-    if ((emp.employmentType || "").includes("退職")) {
-      skipped++;
-      continue;
-    }
+    if ((emp.employmentType || "").includes("退職")) continue;
 
     const stageGrade = (emp.grade || "-").trim();
     const stage = stageForGrade(stageGrade);
     const teamCode = teamCodeForDepartment(emp.team || emp.department);
+    const teamLabel = TEAM_LABELS[teamCode];
     const weight = quantWeightFor(teamCode, stageGrade);
-    const currentGokyu = defaultGokyuForStage(stage);
-    const currentSalary = salaryForGokyu(stage, currentGokyu);
 
-    // 月ごとに定量目標シートから取込
+    const existingRecord = existingByEmployee.get(emp.id);
+
+    // ---- スタッフマスター由来のフィールド ----
+    const staffFields = {
+      employeeName: emp.name,
+      teamCode,
+      teamLabel,
+      stageGrade,
+      currentRank: existingRecord?.currentRank || emp.evaluationRank || "B",
+    };
+
+    // ---- 月別データをシートから収集 ----
     const companyMonthly: Record<string, { target: number; result: number }> = {};
     const otherMonthly: Record<string, { target: number; result: number }> = {};
+    const qualMonthly: Record<number, Record<string, number>> = {};
     const sourceRecordIds: string[] = [];
     for (const ym of period.months) {
-      const goal = latestByEmployeeMonth.get(`${emp.id}::${ym}`);
-      if (!goal) continue;
-      sourceRecordIds.push(goal.id);
-      const answers = goal.answers || {};
-      const companyTarget = parseNumber(answers.company_value);
-      const companyResult = parseNumber(answers.company_result);
-      if (companyTarget > 0 || companyResult > 0) {
-        companyMonthly[ym] = { target: companyTarget, result: companyResult };
+      const quantSheet = sheetFor("quantitative", emp.id, ym);
+      if (quantSheet) {
+        sourceRecordIds.push(quantSheet.id);
+        const { companyTarget, companyResult, otherTarget, otherResult } =
+          quantEntriesFromSheet(quantSheet.answers || {}, weight);
+        if (companyTarget > 0 || companyResult > 0) {
+          companyMonthly[ym] = { target: companyTarget, result: companyResult };
+        }
+        if (otherTarget > 0 || otherResult > 0) {
+          otherMonthly[ym] = { target: otherTarget, result: otherResult };
+        }
       }
-      const otherTarget =
-        weight.otherType === "team"
-          ? parseNumber(answers.team_value) || parseNumber(answers.team_deadline)
-          : parseNumber(answers.personal_value);
-      const otherResult =
-        weight.otherType === "team"
-          ? parseNumber(answers.team_result) || parseNumber(answers.monthly_result1)
-          : parseNumber(answers.personal_result) || parseNumber(answers.monthly_result1);
-      if (otherTarget > 0 || otherResult > 0) {
-        otherMonthly[ym] = { target: otherTarget, result: otherResult };
+      const qualSheet = sheetFor("qualitative", emp.id, ym);
+      if (qualSheet) {
+        sourceRecordIds.push(qualSheet.id);
+        const scores = qualScoresFromSheet(qualSheet.answers || {});
+        scores.forEach((score, i) => {
+          if (score > 0) {
+            if (!qualMonthly[i]) qualMonthly[i] = {};
+            qualMonthly[i][ym] = score;
+          }
+        });
       }
     }
 
-    newRecords.push({
-      id: crypto.randomUUID(),
-      periodId,
-      employeeId: emp.id,
-      employeeName: emp.name,
-      teamCode,
-      teamLabel: TEAM_LABELS[teamCode],
-      stageGrade,
-      currentRank: emp.evaluationRank || "B",
-      currentGokyu,
-      currentSalary,
-      quantitative: {
-        companyMonthly,
-        otherMonthly,
-        sourceRecordIds,
-      },
-      qualitative: [0, 1, 2].map((i) => ({
+    if (!existingRecord) {
+      // ---- 新規作成 ----
+      const currentGokyu = defaultGokyuForStage(stage);
+      const currentSalary = salaryForGokyu(stage, currentGokyu);
+      newRecords.push({
+        id: crypto.randomUUID(),
+        periodId,
+        employeeId: emp.id,
+        ...staffFields,
+        currentGokyu,
+        currentSalary,
+        quantitative: {
+          companyMonthly,
+          otherMonthly,
+          sourceRecordIds,
+        },
+        qualitative: [0, 1, 2, 3, 4].map((i) => ({
+          label: QUALITATIVE_ITEM_LABELS[i],
+          monthlyScores: qualMonthly[i] || {},
+        })),
+        adjustment: 0,
+        status: "draft",
+        createdAt: now,
+        updatedAt: now,
+      });
+      continue;
+    }
+
+    // ---- 既存レコードの更新（未入力のみ補完・手動値は保持） ----
+    let changed = false;
+    const next: EvaluationRecord = { ...existingRecord };
+
+    if (
+      next.employeeName !== staffFields.employeeName ||
+      next.teamCode !== staffFields.teamCode ||
+      next.teamLabel !== staffFields.teamLabel ||
+      next.stageGrade !== staffFields.stageGrade
+    ) {
+      Object.assign(next, staffFields, {
+        currentRank: next.currentRank || staffFields.currentRank,
+      });
+      changed = true;
+    }
+
+    const q = next.quantitative;
+    for (const ym of period.months) {
+      if (!q.companyMonthly[ym] && companyMonthly[ym]) {
+        q.companyMonthly[ym] = companyMonthly[ym];
+        changed = true;
+      }
+      if (!q.otherMonthly[ym] && otherMonthly[ym]) {
+        q.otherMonthly[ym] = otherMonthly[ym];
+        changed = true;
+      }
+    }
+    const newSourceIds = sourceRecordIds.filter((id) => !q.sourceRecordIds.includes(id));
+    if (newSourceIds.length > 0) {
+      q.sourceRecordIds = [...q.sourceRecordIds, ...newSourceIds];
+      changed = true;
+    }
+
+    // 定性: 5項目に正規化し、未入力の月のみ補完
+    const qualitative = [0, 1, 2, 3, 4].map((i) => {
+      const item = next.qualitative[i] || {
         label: QUALITATIVE_ITEM_LABELS[i],
         monthlyScores: {},
-      })),
-      adjustment: 0,
-      status: "draft",
-      createdAt: now,
-      updatedAt: now,
+      };
+      const monthlyScores = { ...item.monthlyScores };
+      for (const ym of period.months) {
+        if (monthlyScores[ym] === undefined && qualMonthly[i]?.[ym] !== undefined) {
+          monthlyScores[ym] = qualMonthly[i][ym];
+          changed = true;
+        }
+      }
+      return { ...item, monthlyScores };
     });
+    if (qualitative.length !== next.qualitative.length) changed = true;
+    next.qualitative = qualitative;
+
+    if (changed && next.status !== "confirmed") {
+      updatedRecords.push(next);
+      updatedCount++;
+    }
   }
 
   await Promise.all(newRecords.map((r) => saveEvaluationRecord(r)));
+  await Promise.all(updatedRecords.map((r) => saveEvaluationRecord(r)));
   revalidatePath("/evaluations");
-  return { ok: true, created: newRecords.length, skipped };
+  return { ok: true, created: newRecords.length, updated: updatedCount };
 }
 
 function monthsInclude(periodId: string, ym: string): boolean {
