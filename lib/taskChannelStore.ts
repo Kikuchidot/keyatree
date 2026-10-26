@@ -712,6 +712,32 @@ export async function markTalkRead(memberId: string, talkId: string): Promise<vo
   await putJson(supabase, readPath(memberId), cur);
 }
 
+/**
+ * 指定メッセージ以降を未読に戻す（既読位置をそのメッセージの直前に巻き戻す）。
+ * 未読判定は createdAt > lastRead なので、対象メッセージ自身も未読に含めるため
+ * 1ms 前を保存する。現在の既読位置より後ろには進めない（巻き戻しのみ）。
+ */
+export async function markTalkUnreadFrom(memberId: string, talkId: string, fromCreatedAt: string): Promise<void> {
+  if (!memberId || !talkId || !fromCreatedAt) return;
+  const t = Date.parse(fromCreatedAt);
+  if (Number.isNaN(t)) return;
+  const before = new Date(t - 1).toISOString();
+  if (!isSupabaseEnabled()) {
+    const m = memory();
+    const cur = m.reads.get(memberId) ?? {};
+    if (cur[talkId] && cur[talkId] <= before) return;
+    cur[talkId] = before;
+    m.reads.set(memberId, cur);
+    return;
+  }
+  const supabase = getSupabaseAdmin();
+  await ensureBucket(supabase);
+  const cur = (await getJson<ReadState>(supabase, readPath(memberId))) ?? {};
+  if (cur[talkId] && cur[talkId] <= before) return;
+  cur[talkId] = before;
+  await putJson(supabase, readPath(memberId), cur);
+}
+
 /** アーカイブされていない全チャンネル（DM含む）を取得 */
 async function allActiveChannels(): Promise<(Channel & { type?: string; dmKey?: string })[]> {
   if (!isSupabaseEnabled()) {

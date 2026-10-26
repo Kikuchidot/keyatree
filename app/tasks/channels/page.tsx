@@ -574,6 +574,8 @@ export default function ChannelsWorkspacePage() {
   // ---- 未読管理 ----
   const selectionRef = useRef<Selection>(null);
   selectionRef.current = selection;
+  // 「未読に戻す」直後のトークは、閲覧中の自動既読化で即座に既読へ戻さない
+  const suppressAutoReadRef = useRef<string | null>(null);
 
   const loadUnread = useCallback(async () => {
     try {
@@ -586,9 +588,10 @@ export default function ChannelsWorkspacePage() {
         total: (d?.total ?? 0) as number,
       };
       // 開いているトーク/DMは自動で既読化する（閲覧中に届いた新着を未読のままにしない）
+      // ただし「未読に戻す」直後のトークは自動既読化しない
       const cur = selectionRef.current;
       const openTalkId = cur?.type === "talk" ? cur.talkId : cur?.type === "dm" ? cur.talkId : null;
-      if (openTalkId && next.byTalk[openTalkId] > 0) {
+      if (openTalkId && openTalkId !== suppressAutoReadRef.current && next.byTalk[openTalkId] > 0) {
         fetch("/api/task-channels/unread", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -629,6 +632,26 @@ export default function ChannelsWorkspacePage() {
       return { byTalk, byChannel, total: Math.max(0, prev.total - removed) };
     });
   }, []);
+
+  /**
+   * 指定メッセージ以降を未読に戻す。
+   * サイドバーのバッジ・マイページの未読通知が即座に復活するよう、
+   * サーバー更新後に未読集計を再取得する。
+   */
+  const markUnreadFrom = async (m: TalkMessage) => {
+    if (!m.talkId) return;
+    suppressAutoReadRef.current = m.talkId;
+    try {
+      await fetch("/api/task-channels/unread", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ talkId: m.talkId, unreadFrom: m.createdAt }),
+      });
+    } catch {
+      /* ignore */
+    }
+    loadUnread();
+  };
 
   useEffect(() => {
     loadUnread();
@@ -710,11 +733,13 @@ export default function ChannelsWorkspacePage() {
     setExpanded((prev) => new Set(prev).add(id));
   };
   const selectTalk = (channelId: string, talkId: string) => {
+    suppressAutoReadRef.current = null;
     setSelection({ type: "talk", channelId, talkId });
     markTalkReadLocal(talkId, channelId);
   };
   const selectDm = (dm: DmChannel) => {
     if (!dm.talkId) return;
+    suppressAutoReadRef.current = null;
     setSelection({ type: "dm", dmChannelId: dm.id, talkId: dm.talkId, peer: dm.peer });
     markTalkReadLocal(dm.talkId, dm.id);
     setSidebarTab("dm");
@@ -1128,6 +1153,7 @@ export default function ChannelsWorkspacePage() {
               meId={meId}
               highlightMessageId={pendingHighlight}
               clearHighlight={() => setPendingHighlight(null)}
+              onMarkUnread={markUnreadFrom}
               onTalkUpdated={(t) =>
                 setTalksByChannel((prev) => ({
                   ...prev,
@@ -1155,6 +1181,7 @@ export default function ChannelsWorkspacePage() {
               meName={session?.name ?? ""}
               highlightMessageId={pendingHighlight}
               clearHighlight={() => setPendingHighlight(null)}
+              onMarkUnread={markUnreadFrom}
               onMessageSent={() => loadDms()}
             />
           ) : (
@@ -1349,6 +1376,7 @@ function TalkView({
   meId,
   highlightMessageId,
   clearHighlight,
+  onMarkUnread,
   onTalkUpdated,
 }: {
   channel: Channel;
@@ -1358,6 +1386,8 @@ function TalkView({
   /** 通知から遷移した場合のスクロール対象メッセージID */
   highlightMessageId?: string | null;
   clearHighlight?: () => void;
+  /** 指定メッセージ以降を未読に戻す */
+  onMarkUnread: (m: TalkMessage) => void;
   onTalkUpdated: (t: Talk) => void;
 }) {
   const [tab, setTab] = useState<"chat" | "tasks" | "members">("chat");
@@ -1853,6 +1883,9 @@ function TalkView({
                               {(mine || canManage) && (
                                 <button onClick={() => deleteMessage(m.id)} className="text-[11px] text-gray-500 hover:text-rose-400">削除</button>
                               )}
+                              <button onClick={() => onMarkUnread(m)} className="text-[11px] text-gray-500 hover:text-amber-500" title="このメッセージ以降を未読に戻す">
+                                未読に戻す
+                              </button>
                             </span>
                           </div>
                         </div>
@@ -2997,6 +3030,7 @@ function DmView({
   meName,
   highlightMessageId,
   clearHighlight,
+  onMarkUnread,
   onMessageSent,
 }: {
   dmChannelId: string;
@@ -3006,6 +3040,8 @@ function DmView({
   /** 通知から遷移した場合のスクロール対象メッセージID */
   highlightMessageId?: string | null;
   clearHighlight?: () => void;
+  /** 指定メッセージ以降を未読に戻す */
+  onMarkUnread: (m: TalkMessage) => void;
   onMessageSent: () => void;
 }) {
   const [messages, setMessages] = useState<TalkMessage[]>([]);
@@ -3262,6 +3298,9 @@ function DmView({
                         <button onClick={() => toggleReaction(m.id, "👍")} className="text-[12px] text-gray-500 hover:text-indigo-400" title="いいね">👍</button>
                         {mine && m.text && <button onClick={() => dmStartEdit(m)} className="text-[11px] text-gray-500 hover:text-sky-400">編集</button>}
                         {mine && <button onClick={() => deleteMessage(m.id)} className="text-[11px] text-gray-500 hover:text-rose-400">削除</button>}
+                        <button onClick={() => onMarkUnread(m)} className="text-[11px] text-gray-500 hover:text-amber-500" title="このメッセージ以降を未読に戻す">
+                          未読に戻す
+                        </button>
                       </span>
                     </div>
                   </div>
