@@ -151,6 +151,13 @@ def badge_in_row(row):
 
 def test_01_api_unread_count(env):
     """API: B の未読集計に投稿したトークが含まれる"""
+    # 実行順序に依存しないよう、このテスト自体で新規メッセージを投稿してから検証する
+    # （test_04/05 がトークを既読化するため、それらより後に実行された場合を考慮）
+    r = env["client_a"].post(
+        f"/api/task-channels/{env['channel']['id']}/talks/{env['talk']['id']}/messages",
+        json={"text": "未読テストメッセージです（test_01 追加分）"},
+    )
+    assert r.status_code == 200, f"メッセージ投稿失敗: {r.text}"
     r = env["client_b"].get("/api/task-channels/unread")
     assert r.status_code == 200, r.text
     d = r.json()
