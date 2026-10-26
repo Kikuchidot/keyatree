@@ -2016,6 +2016,9 @@ function TalkView({
                                     placeholder="返信を入力（@でメンション・装飾ツールバー・画像はCtrl+Vで添付・⌘/Ctrl+Enterで送信）"
                                     className="w-full resize-none bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 max-h-40"
                                   />
+                                  {extractFirstUrl(replyText) && (
+                                    <LinkPreviewCard url={extractFirstUrl(replyText)!} />
+                                  )}
                                   <div className="mt-2 flex items-center justify-between gap-2">
                                     <button onClick={() => replyFileInputRef.current?.click()} className="text-xs font-bold text-gray-600 hover:text-emerald-300 border border-gray-300 hover:border-emerald-500 px-3 py-1.5 rounded-lg transition">
                                       📎 ファイル
@@ -2093,6 +2096,10 @@ function TalkView({
                       className="w-full resize-none bg-gray-100 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 max-h-48"
                     />
                     {attachError && <p className="mt-1 text-xs text-rose-400">{attachError}</p>}
+                    {/* 入力中のURLのOGPプレビュー */}
+                    {extractFirstUrl(composer) && (
+                      <LinkPreviewCard url={extractFirstUrl(composer)!} />
+                    )}
                     {attachments.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-2">
                         {attachments.map((a, i) => (
@@ -3642,6 +3649,9 @@ function DmView({
                               placeholder="返信を入力（@でメンション・装飾ツールバー・画像はCtrl+Vで添付・⌘/Ctrl+Enterで送信）"
                               className="w-full resize-none bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 max-h-40"
                             />
+                            {extractFirstUrl(dmReplyText) && (
+                              <LinkPreviewCard url={extractFirstUrl(dmReplyText)!} />
+                            )}
                             <div className="mt-2 flex items-center justify-between gap-2">
                               <button onClick={() => dmReplyFileInputRef.current?.click()} className="text-xs font-bold text-gray-600 hover:text-indigo-500 border border-gray-300 hover:border-indigo-500 px-3 py-1.5 rounded-lg transition">
                                 📎 ファイル
@@ -3754,6 +3764,10 @@ function DmView({
               {sending ? "..." : "送信"}
             </button>
           </div>
+          {/* 入力中のURLのOGPプレビュー */}
+          {extractFirstUrl(text) && (
+            <LinkPreviewCard url={extractFirstUrl(text)!} />
+          )}
           <div className="mt-1.5 flex items-center gap-2">
             <button onClick={() => setShowDmQuotePicker(true)} className="text-[11px] font-bold text-gray-600 hover:text-sky-500 border border-gray-300 hover:border-sky-500 px-2.5 py-1 rounded-lg transition">
               ❝ 他のトークから引用

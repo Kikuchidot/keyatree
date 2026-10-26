@@ -141,3 +141,41 @@ def test_02_ui_link_preview_card(env, browser: Browser):
             )
         except Exception:
             pass
+
+
+def test_03_live_preview_while_typing(env, browser: Browser):
+    """入力中にURLを貼ると、投稿前の入力エリアにOGPプレビューが即表示される"""
+    ctx = browser.new_context(viewport={"width": 1600, "height": 900})
+    ctx.add_cookies([{"name": "kt_session", "value": cookie_value(env["acc_b"]), "url": env["base_url"]}])
+    page = ctx.new_page()
+    try:
+        page.goto(f"{env['base_url']}/tasks/channels", wait_until="domcontentloaded")
+        ch_btn = page.locator(f"aside button:has-text('{CH_NAME}')").first
+        expect(ch_btn).to_be_visible(timeout=60000)
+        ch_btn.click()
+        talk_span = page.locator(f"aside span:has-text('{TALK_NAME}')").first
+        expect(talk_span).to_be_visible(timeout=30000)
+        talk_span.click()
+
+        # --- 投稿フォームを開く（折りたたみの場合） ---
+        start_btn = page.locator("button:has-text('新しい投稿をはじめる')")
+        if start_btn.count() > 0:
+            start_btn.first.click()
+
+        # --- ① URLを入力（まだ投稿しない） ---
+        editor = page.locator("[contenteditable=true]").first
+        editor.click()
+        editor.type(TARGET_URL)
+
+        # --- ② 入力エリア内にプレビューカードが即表示される ---
+        composer_area = page.locator("div.border-t").last
+        card = composer_area.locator("a.group").first
+        expect(card).to_be_visible(timeout=30000)
+        expect(card.locator("text=github.com").first).to_be_visible(timeout=10000)
+        page.screenshot(path=".verdent/testing/screenshots/url_preview_live.png", full_page=False)
+
+        # --- ③ URLを消すとプレビューも消える ---
+        editor.fill("")
+        expect(composer_area.locator("a.group")).to_have_count(0)
+    finally:
+        ctx.close()
