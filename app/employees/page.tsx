@@ -14,6 +14,19 @@ const rankColors: Record<string, { bg: string; text: string; border: string }> =
 
 const rankOptions = ["すべて", "S", "A", "B", "C"];
 
+type SessionInfo = { id?: string; employeeId?: string; permissionId?: string };
+
+function parseCookieSession(): SessionInfo | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(/kt_session=([^;]+)/);
+  if (!match) return null;
+  try {
+    return JSON.parse(decodeURIComponent(match[1])) as SessionInfo;
+  } catch {
+    return null;
+  }
+}
+
 export default function EmployeeListPage() {
   const [search, setSearch] = useState("");
   const [team, setTeam] = useState("すべて");
@@ -22,6 +35,19 @@ export default function EmployeeListPage() {
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState("");
+  const [session, setSession] = useState<SessionInfo | null>(null);
+
+  useEffect(() => {
+    setSession(parseCookieSession());
+  }, []);
+
+  // グレード・評価ランクは本人と管理者のみ閲覧可
+  const isAdmin = session?.permissionId === "admin" || session?.permissionId === "hr_manager";
+  const sessionEmployeeId = session?.employeeId || session?.id || null;
+  function canViewRankGrade(emp: Employee): boolean {
+    if (isAdmin) return true;
+    return !!sessionEmployeeId && emp.id === sessionEmployeeId;
+  }
 
   const teamOptions = useMemo(
     () => ["すべて", ...Array.from(new Set(allEmployees.map((e) => e.team).filter(Boolean)))],
@@ -118,7 +144,7 @@ export default function EmployeeListPage() {
       (e.team ?? "").includes(search) ||
       e.position.includes(search);
     const matchTeam = team === "すべて" || e.team === team;
-    const matchRank = rank === "すべて" || e.evaluationRank === rank;
+    const matchRank = !isAdmin || rank === "すべて" || e.evaluationRank === rank;
     return matchSearch && matchTeam && matchRank;
   });
 
@@ -149,13 +175,16 @@ export default function EmployeeListPage() {
           >
             {teamOptions.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
-          <select
-            value={rank}
-            onChange={(e) => setRank(e.target.value)}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-300"
-          >
-            {rankOptions.map((r) => <option key={r} value={r}>評価ランク：{r}</option>)}
-          </select>
+          {/* 評価ランクの絞り込みは管理者のみ（他のスタッフのランクを見せないため） */}
+          {isAdmin && (
+            <select
+              value={rank}
+              onChange={(e) => setRank(e.target.value)}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-300"
+            >
+              {rankOptions.map((r) => <option key={r} value={r}>評価ランク：{r}</option>)}
+            </select>
+          )}
         </div>
 
         {/* 件数 */}
@@ -181,16 +210,19 @@ export default function EmployeeListPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filtered.map((emp) => {
+              const canView = canViewRankGrade(emp);
               const rc = rankColors[emp.evaluationRank] ?? rankColors["C"];
               return (
                 <div
                   key={emp.id}
                   className="bg-white rounded-2xl border shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all overflow-hidden group"
                 >
-                  {/* カードヘッダー（ランク色帯） */}
-                  <div className={`h-1.5 w-full ${rc.bg.replace("bg-", "bg-").replace("50", "400")}`}
-                    style={{ background: emp.evaluationRank === "S" ? "#f59e0b" : emp.evaluationRank === "A" ? "#10b981" : emp.evaluationRank === "B" ? "#3b82f6" : "#9ca3af" }}
-                  />
+                  {/* カードヘッダー（ランク色帯は本人・管理者のみ） */}
+                  {canView && (
+                    <div className={`h-1.5 w-full ${rc.bg.replace("bg-", "bg-").replace("50", "400")}`}
+                      style={{ background: emp.evaluationRank === "S" ? "#f59e0b" : emp.evaluationRank === "A" ? "#10b981" : emp.evaluationRank === "B" ? "#3b82f6" : "#9ca3af" }}
+                    />
+                  )}
 
                   <div className="p-5">
                     <div className="flex items-start gap-4">
@@ -252,7 +284,10 @@ export default function EmployeeListPage() {
                         <p className="text-xs text-gray-500 mt-0.5 truncate">{emp.team || emp.department}</p>
                         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{emp.position}</span>
-                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{emp.grade}</span>
+                          {/* グレードは本人・管理者のみ表示 */}
+                          {canView && (
+                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{emp.grade}</span>
+                          )}
                         </div>
                       </Link>
                     </div>
@@ -262,9 +297,12 @@ export default function EmployeeListPage() {
                       <span className="text-xs text-gray-400">勤続 {calcTenure(emp.joinedAt)}</span>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-gray-400">{emp.employmentType}</span>
-                        <span className={`text-xs font-black px-2.5 py-1 rounded-full border ${rc.bg} ${rc.text} ${rc.border}`}>
-                          {emp.evaluationRank}
-                        </span>
+                        {/* 評価ランクは本人・管理者のみ表示 */}
+                        {canView && (
+                          <span className={`text-xs font-black px-2.5 py-1 rounded-full border ${rc.bg} ${rc.text} ${rc.border}`}>
+                            {emp.evaluationRank}
+                          </span>
+                        )}
                       </div>
                     </Link>
                   </div>
