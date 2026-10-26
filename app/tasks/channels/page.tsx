@@ -1940,10 +1940,10 @@ function TalkView({
                               {mine && (
                                 <button onClick={() => deleteMessage(m.id)} className="text-[11px] text-gray-500 hover:text-rose-400">削除</button>
                               )}
-                              <button onClick={() => onMarkUnread(m)} className="text-[11px] text-gray-500 hover:text-amber-500" title="このメッセージ以降を未読に戻す">
-                                未読に戻す
-                              </button>
                             </span>
+                            <button onClick={() => onMarkUnread(m)} className="text-[11px] font-semibold text-amber-600 hover:text-amber-500 border border-amber-200 hover:border-amber-400 rounded-md px-2 py-0.5 transition flex-shrink-0" title="このメッセージ以降を未読に戻す">
+                              未読に戻す
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -3677,10 +3677,10 @@ function DmView({
                           </button>
                           {mine && m.text && <button onClick={() => dmStartEdit(m)} className="text-[11px] text-gray-500 hover:text-sky-400">編集</button>}
                           {mine && <button onClick={() => deleteMessage(m.id)} className="text-[11px] text-gray-500 hover:text-rose-400">削除</button>}
-                          <button onClick={() => onMarkUnread(m)} className="text-[11px] text-gray-500 hover:text-amber-500" title="このメッセージ以降を未読に戻す">
-                            未読に戻す
-                          </button>
                         </span>
+                        <button onClick={() => onMarkUnread(m)} className="text-[11px] font-semibold text-amber-600 hover:text-amber-500 border border-amber-200 hover:border-amber-400 rounded-md px-2 py-0.5 transition flex-shrink-0" title="このメッセージ以降を未読に戻す">
+                          未読に戻す
+                        </button>
                       </div>
                     </div>
                   </div>
