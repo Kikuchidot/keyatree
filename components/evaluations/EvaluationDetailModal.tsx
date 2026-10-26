@@ -9,6 +9,7 @@ import { QUALITATIVE_ITEM_LABELS } from "@/lib/evaluationConfig";
 export default function EvaluationDetailModal({
   record,
   months,
+  rankOptions,
   onClose,
   onSaved,
   onFinalize,
@@ -17,6 +18,7 @@ export default function EvaluationDetailModal({
 }: {
   record: EvaluationRecord;
   months: string[];
+  rankOptions: { value: string; label: string }[];
   onClose: () => void;
   onSaved: (record: EvaluationRecord) => void;
   onFinalize: (record: EvaluationRecord) => void;
@@ -145,18 +147,22 @@ export default function EvaluationDetailModal({
             </h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <label className="text-xs text-gray-500">
-                現状ランク（S/A/B/C/D/E）
+                現状ランク（マスター管理で編集可）
                 <select
                   disabled={readOnly}
-                  value={draft.currentRank || "B"}
+                  value={draft.currentRank || rankOptions[0]?.value || "B"}
                   onChange={(e) => setDraft((d) => ({ ...d, currentRank: e.target.value }))}
                   className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white disabled:bg-gray-50"
                 >
-                  {["S", "A", "B", "C", "D", "E"].map((r) => (
-                    <option key={r} value={r}>
-                      {r}
+                  {rankOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
                     </option>
                   ))}
+                  {rankOptions.every((o) => o.value !== (draft.currentRank || "")) &&
+                  draft.currentRank ? (
+                    <option value={draft.currentRank}>{draft.currentRank}（現在値）</option>
+                  ) : null}
                 </select>
               </label>
               <label className="text-xs text-gray-500">

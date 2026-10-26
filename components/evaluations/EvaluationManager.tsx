@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import type { EvaluationPeriod, EvaluationRecord } from "@/lib/evaluationStore";
 import { computeEvaluation } from "@/lib/evaluationEngine";
 import {
@@ -11,6 +11,7 @@ import {
   reopenEvaluationRecordAction,
   saveEvaluationRecordAction,
 } from "@/lib/evaluationActions";
+import { fetchMasters, masterSelectOptions } from "@/lib/mastersStore";
 import EvaluationDetailModal from "./EvaluationDetailModal";
 
 const RANK_STYLES: Record<string, string> = {
@@ -21,6 +22,11 @@ const RANK_STYLES: Record<string, string> = {
   D: "bg-orange-100 text-orange-700 border-orange-200",
   E: "bg-rose-100 text-rose-700 border-rose-200",
 };
+
+const FALLBACK_RANK_OPTIONS = ["S", "A", "B", "C", "D", "E"].map((r) => ({
+  value: r,
+  label: r,
+}));
 
 export default function EvaluationManager({
   initialPeriods,
@@ -42,6 +48,17 @@ export default function EvaluationManager({
   const [newYear, setNewYear] = useState<string>(String(new Date().getFullYear()));
   const [newQuarter, setNewQuarter] = useState<string>("1");
   const [pending, startTransition] = useTransition();
+  const [rankOptions, setRankOptions] = useState(FALLBACK_RANK_OPTIONS);
+
+  // マスターの評価ランク定義を取得（S〜E 6段階は既定。マスターで変更可能）
+  useEffect(() => {
+    fetchMasters()
+      .then((masters) => {
+        const options = masterSelectOptions(masters, "evaluationRank");
+        if (options.length > 0) setRankOptions(options);
+      })
+      .catch(() => {});
+  }, []);
 
   const currentPeriod = periods.find((p) => p.id === currentPeriodId) ?? null;
   const months = currentPeriod?.months ?? [];
@@ -399,6 +416,7 @@ export default function EvaluationManager({
         <EvaluationDetailModal
           record={selected}
           months={months}
+          rankOptions={rankOptions}
           onClose={() => setSelected(null)}
           onSaved={handleSaved}
           onFinalize={handleFinalize}

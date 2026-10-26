@@ -10,6 +10,7 @@ const tabConfig = [
   { key: "department", label: "所属先", desc: "スタッフが所属する組織・チームの一覧" },
   { key: "position", label: "役職", desc: "スタッフの役職区分" },
   { key: "grade", label: "等級/グレード", desc: "給与・評価に紐づく等級・グレード区分" },
+  { key: "evaluationRank", label: "評価ランク", desc: "人事評価のランク区分（S・A・B・C・D・E など）" },
   { key: "jobType", label: "職種", desc: "スタッフの職種区分" },
   { key: "employmentType", label: "雇用形態", desc: "契約の種別区分" },
   { key: "blank", label: "ブランク", desc: "自由に使えるカテゴリー" },

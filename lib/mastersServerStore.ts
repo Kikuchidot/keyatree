@@ -60,6 +60,14 @@ export const defaultMasters: Masters = {
     { id: "e4", label: "アルバイト", order: 4 },
     { id: "e5", label: "退職", order: 5 },
   ],
+  evaluationRank: [
+    { id: "r1", label: "S", order: 1 },
+    { id: "r2", label: "A", order: 2 },
+    { id: "r3", label: "B", order: 3 },
+    { id: "r4", label: "C", order: 4 },
+    { id: "r5", label: "D", order: 5 },
+    { id: "r6", label: "E", order: 6 },
+  ],
   blank: [],
 };
 
@@ -93,7 +101,13 @@ export async function getMasters(): Promise<Masters> {
     return defaultMasters;
   }
   try {
-    return JSON.parse(await data.text()) as Masters;
+    const saved = JSON.parse(await data.text()) as Masters;
+    // 後から追加したマスターキー（evaluationRank など）は既定値で補完する
+    const merged: Masters = { ...defaultMasters, ...saved };
+    for (const key of Object.keys(defaultMasters)) {
+      if (!Array.isArray(merged[key])) merged[key] = defaultMasters[key];
+    }
+    return merged;
   } catch {
     return defaultMasters;
   }

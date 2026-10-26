@@ -6,7 +6,7 @@ import { employees, Employee } from "@/lib/mockData";
 
 import { fetchMasters, masterSelectOptions, type Masters } from "@/lib/mastersStore";
 
-const ranks = ["S", "A", "B", "C"];
+const FALLBACK_RANKS = ["S", "A", "B", "C", "D", "E"];
 
 const inputCls = "w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 bg-white text-gray-800";
 
@@ -233,8 +233,18 @@ export default function StaffManagePage() {
               </div>
               <div>
                 <label className="text-xs font-semibold text-gray-600 mb-1 block">評価ランク</label>
-                <select value={form.evaluationRank} onChange={(e) => setForm({ ...form, evaluationRank: e.target.value })} className={inputCls}>
-                  {ranks.map((r) => <option key={r}>{r}</option>)}
+                <select
+                  value={form.evaluationRank}
+                  onChange={(e) => setForm({ ...form, evaluationRank: e.target.value })}
+                  className={inputCls}
+                  disabled={mastersLoading}
+                >
+                  {(masterSelectOptions(masters, "evaluationRank").length > 0
+                    ? masterSelectOptions(masters, "evaluationRank")
+                    : FALLBACK_RANKS.map((r) => ({ value: r, label: r }))
+                  ).map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
                 </select>
               </div>
               {error && <p className="text-xs text-rose-500">{error}</p>}
