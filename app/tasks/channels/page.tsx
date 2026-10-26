@@ -1479,8 +1479,12 @@ function TalkView({
     e.stopPropagation();
     dragCounter.current = 0;
     setIsDragging(false);
+    if (!canManage) return;
     const files = Array.from(e.dataTransfer?.files ?? []);
-    if (files.length > 0) addFiles(files, "main");
+    if (files.length > 0) {
+      setTab("chat");
+      addFiles(files, "main");
+    }
   };
 
   // 貼り付け（Ctrl+V）: 画像のみ
@@ -1709,7 +1713,23 @@ function TalkView({
   const taskCandidates = talk.members.map((m) => ({ id: m.id, name: m.name }));
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div
+      className="flex-1 flex flex-col min-h-0 relative"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* ドラッグ&ドロップオーバーレイ（画面全体） */}
+      {isDragging && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-emerald-50/85 border-2 border-dashed border-emerald-500 rounded-xl pointer-events-none">
+          <div className="text-center">
+            <span className="text-3xl">📎</span>
+            <p className="text-sm font-bold text-emerald-700 mt-1">ファイルをドロップして添付</p>
+            <p className="text-xs text-emerald-600 mt-0.5">最大50MB / 6ファイルまで</p>
+          </div>
+        </div>
+      )}
       {/* ヘッダー */}
       <div className="flex-shrink-0 border-b border-gray-200 px-5 pt-3">
         <div className="flex items-center gap-2">
@@ -1989,22 +2009,7 @@ function TalkView({
             </div>
           </div>
           {/* 新規投稿コンポーザ */}
-          <div
-            className={`flex-shrink-0 border-t border-gray-200 p-3 relative transition-colors ${isDragging ? "bg-emerald-50 border-emerald-400" : ""}`}
-            onDragEnter={handleDragEnter}
-            onDragLeave={handleDragLeave}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-          >
-            {isDragging && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-emerald-50/80 border-2 border-dashed border-emerald-500 rounded-xl pointer-events-none">
-                <div className="text-center">
-                  <span className="text-3xl">📎</span>
-                  <p className="text-sm font-bold text-emerald-700 mt-1">ファイルをドロップしてください</p>
-                  <p className="text-xs text-emerald-600 mt-0.5">最大50MB / 6ファイルまで</p>
-                </div>
-              </div>
-            )}
+          <div className="flex-shrink-0 border-t border-gray-200 p-3">
             <div className="max-w-2xl mx-auto">
               {canManage ? (
                 composerOpen ? (
@@ -2107,9 +2112,18 @@ function TalkView({
                     </div>
                   </div>
                 ) : (
-                  <button onClick={() => setComposerOpen(true)} className="w-full text-left rounded-xl border border-gray-300 bg-white hover:border-emerald-500 px-4 py-2.5 text-sm text-gray-500 transition flex items-center gap-2">
-                    <span className="text-emerald-400">✎</span> 新しい投稿をはじめる…
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setComposerOpen(true)} className="flex-1 text-left rounded-xl border border-gray-300 bg-white hover:border-emerald-500 px-4 py-2.5 text-sm text-gray-500 transition flex items-center gap-2">
+                      <span className="text-emerald-400">✎</span> 新しい投稿をはじめる…
+                    </button>
+                    <button
+                      onClick={() => mainFileInputRef.current?.click()}
+                      title="ファイルを添付"
+                      className="flex-shrink-0 rounded-xl border border-gray-300 bg-white hover:border-emerald-500 px-4 py-2.5 text-sm text-gray-600 transition"
+                    >
+                      📎
+                    </button>
+                  </div>
                 )
               ) : (
                 <p className="text-xs text-gray-500 text-center py-2">投稿はチャンネル参加メンバーのみ可能です。</p>
@@ -3215,7 +3229,23 @@ function DmView({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div
+      className="flex-1 flex flex-col min-h-0 relative"
+      onDragEnter={handleDmDragEnter}
+      onDragLeave={handleDmDragLeave}
+      onDragOver={handleDmDragOver}
+      onDrop={handleDmDrop}
+    >
+      {/* ドラッグ&ドロップオーバーレイ（画面全体） */}
+      {dmIsDragging && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-indigo-50/85 border-2 border-dashed border-indigo-500 rounded-xl pointer-events-none">
+          <div className="text-center">
+            <span className="text-3xl">📎</span>
+            <p className="text-sm font-bold text-indigo-700 mt-1">ファイルをドロップして添付</p>
+            <p className="text-xs text-indigo-600 mt-0.5">最大50MB / 6ファイルまで</p>
+          </div>
+        </div>
+      )}
       {/* ヘッダー */}
       <div className="flex-shrink-0 border-b border-gray-200 px-5 py-3 flex items-center gap-3">
         <span className={`w-9 h-9 rounded-full ${colorFor(peer.id)} flex items-center justify-center text-white text-sm font-bold flex-shrink-0`}>
@@ -3312,22 +3342,7 @@ function DmView({
       </div>
 
       {/* メッセージ入力 */}
-      <div
-        className={`flex-shrink-0 border-t border-gray-200 p-3 relative transition-colors ${dmIsDragging ? "bg-indigo-50 border-indigo-400" : ""}`}
-        onDragEnter={handleDmDragEnter}
-        onDragLeave={handleDmDragLeave}
-        onDragOver={handleDmDragOver}
-        onDrop={handleDmDrop}
-      >
-        {dmIsDragging && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-indigo-50/80 border-2 border-dashed border-indigo-500 rounded-xl pointer-events-none">
-            <div className="text-center">
-              <span className="text-3xl">📎</span>
-              <p className="text-sm font-bold text-indigo-700 mt-1">ファイルをドロップしてください</p>
-              <p className="text-xs text-indigo-600 mt-0.5">最大50MB / 6ファイルまで</p>
-            </div>
-          </div>
-        )}
+      <div className="flex-shrink-0 border-t border-gray-200 p-3">
         <div className="max-w-2xl mx-auto">
           {dmAttachError && <p className="mb-1 text-xs text-rose-400">{dmAttachError}</p>}
           {attachments.length > 0 && (
