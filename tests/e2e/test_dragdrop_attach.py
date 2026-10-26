@@ -137,3 +137,59 @@ def test_01_drop_on_message_area_attaches_and_sends(env, browser: Browser):
         page.screenshot(path=".verdent/testing/screenshots/dragdrop_attach.png", full_page=False)
     finally:
         ctx.close()
+
+
+REPLY_FILE_NAME = "dragdrop-reply.txt"
+
+
+def open_talk_as_b(env, browser: Browser):
+    """B として対象トークを開いたページを返す"""
+    ctx = browser.new_context(viewport={"width": 1600, "height": 900})
+    ctx.add_cookies([{"name": "kt_session", "value": cookie_value(env["acc_b"]), "url": env["base_url"]}])
+    page = ctx.new_page()
+    page.goto(f"{env['base_url']}/tasks/channels", wait_until="domcontentloaded")
+    ch_btn = page.locator(f"aside button:has-text('{CH_NAME}')").first
+    expect(ch_btn).to_be_visible(timeout=60000)
+    ch_btn.click()
+    talk_span = page.locator(f"aside span:has-text('{TALK_NAME}')").first
+    expect(talk_span).to_be_visible(timeout=30000)
+    talk_span.click()
+    expect(page.locator("text=D&Dテストの既存メッセージ").first).to_be_visible(timeout=30000)
+    return ctx, page
+
+
+def test_02_drop_on_open_reply_form_attaches_to_reply(env, browser: Browser):
+    """返信フォームが開いている時にフォーム内へドロップ → 返信として添付・送信される"""
+    ctx, page = open_talk_as_b(env, browser)
+    try:
+        # --- ① 返信フォームを開く ---
+        card = page.locator("div.rounded-xl", has_text="D&Dテストの既存メッセージ").last
+        card.locator("button:has-text('スレッドで返信')").click()
+        reply_form = page.locator("[data-reply-form]").first
+        expect(reply_form).to_be_visible(timeout=10000)
+
+        # --- ② 返信フォーム内へドロップ → 返信の添付に追加される ---
+        page.evaluate(
+            """
+            ([fileName]) => {
+              const dt = new DataTransfer();
+              dt.items.add(new File(["reply drop payload"], fileName, { type: "text/plain" }));
+              const target = document.querySelector("[data-reply-form]");
+              for (const type of ["dragenter", "dragover", "drop"]) {
+                target.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }));
+              }
+            }
+            """,
+            [REPLY_FILE_NAME],
+        )
+        # 返信フォーム内に添付が表示される（新規投稿フォームは開かない）
+        expect(reply_form.locator(f"text={REPLY_FILE_NAME}")).to_be_visible(timeout=15000)
+        expect(page.locator("text=件名を追加（任意）")).to_have_count(0)
+
+        # --- ③ 返信として送信 → スレッド内に添付が表示される ---
+        reply_form.locator("button:has-text('返信')").click()
+        thread = page.locator("div.border-t", has_text=REPLY_FILE_NAME).first
+        expect(thread).to_be_visible(timeout=30000)
+        page.screenshot(path=".verdent/testing/screenshots/dragdrop_reply.png", full_page=False)
+    finally:
+        ctx.close()

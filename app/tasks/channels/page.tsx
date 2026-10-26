@@ -1481,7 +1481,12 @@ function TalkView({
     setIsDragging(false);
     if (!canManage) return;
     const files = Array.from(e.dataTransfer?.files ?? []);
-    if (files.length > 0) {
+    if (files.length === 0) return;
+    // ドロップ位置が開いている返信フォーム内なら返信の添付へ、それ以外は新規投稿の添付へ
+    const dropInReply = (e.target as HTMLElement).closest?.("[data-reply-form]");
+    if (dropInReply && replyTo) {
+      addFiles(files, "reply");
+    } else {
       setTab("chat");
       addFiles(files, "main");
     }
@@ -1925,7 +1930,7 @@ function TalkView({
                         {p.kind !== "system" && (
                           <div className="border-t border-gray-200 px-4 py-2 bg-gray-100">
                             {replyTo === p.id ? (
-                              <div className="space-y-2">
+                              <div className="space-y-2" data-reply-form="true">
                                 {replyAttachments.length > 0 && (
                                   <div className="flex flex-wrap gap-2">
                                     {replyAttachments.map((a, i) => (
